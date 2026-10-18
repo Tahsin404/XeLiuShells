@@ -1,0 +1,3 @@
+# ~/.config/quickshell/widgets/dmenu/qmldir
+DmenuLayout DmenuLayout.qml
+WallpaperCarousel WallpaperCarousel.qml

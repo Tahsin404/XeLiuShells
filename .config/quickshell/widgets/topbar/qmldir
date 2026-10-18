@@ -1,0 +1,3 @@
+# ~/.config/quickshell/widgets/topbar/qmldir
+CompactClock CompactClock.qml
+ExpandedCalendar ExpandedCalendar.qml

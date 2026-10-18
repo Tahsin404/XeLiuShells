@@ -1,0 +1,4 @@
+QuickSettingsGrid QuickSettingsGrid.qml
+HardwareMonitors HardwareMonitors.qml
+PowerAndBattery PowerAndBattery.qml
+NotificationCenter NotificationCenter.qml

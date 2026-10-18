@@ -1,0 +1,7 @@
+# ~/.config/quickshell/core/qmldir
+module Core
+singleton Theme Theme.qml
+singleton GlobalState GlobalState.qml
+singleton Backend Backend.qml
+
+FluidBehaviour FluidBehaviour.qml
