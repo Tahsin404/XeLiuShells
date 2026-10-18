@@ -69,10 +69,6 @@ Scope {
             HyprlandFocusGrab {
                 windows: [pWin]
                 active: dockScope.isDmenuOpen
-
-                // Bonus QoL: Hyprland natively detects when you click outside the window
-                // and clears the grab, so we can use it to automatically close the dmenu!
-                onCleared: dockScope.activeMenuId = -1
             }
 
             Region {
