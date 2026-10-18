@@ -24,6 +24,7 @@
 
 <p align="center">
   <a href="#about">About</a> ·
+  <!-- <a href="#showcase">Showcase</a> · -->
   <a href="#features">Features</a> ·
   <a href="#gallery">Gallery</a> ·
   <a href="#requirements">Requirements</a> ·
@@ -41,6 +42,33 @@
 XeLiuShells is a desktop shell for [Hyprland](https://github.com/hyprwm/Hyprland), written in [Quickshell](https://quickshell.org) and QML.
 
 There is no bar. The whole UI is four small pills docked to the screen edges. Each one idles as a tiny handle, reveals quick controls when you hover it, and morphs into a full panel when you click it. Pick a wallpaper and everything (the shell, your Hyprland window borders and the GTK color scheme) re-colors itself to match.
+
+<!--
+VIDEO SHOWCASE: hidden until the video is up.
+
+To publish it:
+  1. Upload the video to YouTube and copy the video ID (the part after "v=" in the URL).
+  2. Replace VIDEO_ID below in the two places it appears.
+  3. Delete the first line and the last line of this block (the two comment markers),
+     and uncomment the "Showcase" link in the nav at the top of the README.
+
+If the thumbnail doesn't load right after uploading, swap "maxresdefault" for "hqdefault".
+
+## Showcase
+
+[![Watch the full walkthrough](https://img.youtube.com/vi/VIDEO_ID/maxresdefault.jpg)](https://www.youtube.com/watch?v=VIDEO_ID)
+
+**[▶ Watch the full walkthrough on YouTube](https://www.youtube.com/watch?v=VIDEO_ID)**
+
+Covered in the video:
+
+- The workspace dock and how it morphs into the launcher
+- Launcher search, command mode and smart launch
+- The wallpaper carousel and live re-theming
+- The clock pill, running-app view and calendar
+- The media pill: sliders and the MPRIS player
+- The utility panel: quick toggles, power menu, notifications and meters
+-->
 
 ## Features
 
@@ -133,7 +161,7 @@ The launcher lives inside the workspace dock. It opens as a two-pane card: an an
   </tr>
   <tr>
     <td width="50%"><img src="docs/screenshots/utility.png" alt="Utility panel"></td>
-    <td width="50%"><img src="docs/screenshots/themes.png" alt="Same desktop with different wallpaper palettes"></td>
+    <td width="50%"><img src="docs/screenshots/theme.png" alt="Same desktop with different wallpaper palettes"></td>
   </tr>
   <tr>
     <td align="center"><b>Utility panel</b> — power, notifications, system monitors</td>
