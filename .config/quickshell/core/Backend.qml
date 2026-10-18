@@ -253,6 +253,8 @@ Item {
                             GlobalState.darkTheme = data.isDark;
                         }
                         Theme.updateFromData(data, GlobalState.darkTheme);
+                        let polarityStr = GlobalState.darkTheme ? "true" : "false";
+                        backendEngine.run("$HOME/.config/quickshell/scripts/set_theme.sh --sync-only " + polarityStr);
                     } catch (e) {}
                 }
             }
@@ -311,9 +313,11 @@ Item {
     }
 
     function reloadWallpapers() {
-        if (GlobalState.wallpapersModel) {
+        if (GlobalState.wallpapersModel && !fetchWallpapersProcess.running) {
             fetchWallpapersProcess.running = true;
         }
+        let polarityStr = GlobalState.darkTheme ? "true" : "false";
+        backendEngine.run("$HOME/.config/quickshell/scripts/set_theme.sh --sync-only " + polarityStr);
     }
     function installWallpaper(rawPath) {
         let cleaned = rawPath.trim().replace(/^["']|["']$/g, "");
@@ -337,8 +341,8 @@ Item {
     function toggleThemePolarity() {
         GlobalState.darkTheme = !GlobalState.darkTheme;
         Theme.applyPolarity(GlobalState.darkTheme);
-        let themeCmd = GlobalState.darkTheme ? "gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark'" : "gsettings set org.gnome.desktop.interface color-scheme 'default'";
-        backendEngine.run(themeCmd);
+        let polarityStr = GlobalState.darkTheme ? "true" : "false";
+        backendEngine.run("$HOME/.config/quickshell/scripts/set_theme.sh --sync-only " + polarityStr);
     }
 
     function smartLaunch(appName, execCmd) {
