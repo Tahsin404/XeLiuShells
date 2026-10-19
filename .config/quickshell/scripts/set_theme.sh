@@ -12,14 +12,16 @@ sync_external_themes() {
     return
   fi
 
-  local is_dark
+  local is_dark wall_is_dark
   is_dark=$(jq -r '.isDark' "$CACHE_JSON" 2>/dev/null)
+  wall_is_dark=$(jq -r 'if .wallIsDark == null then .isDark else .wallIsDark end' "$CACHE_JSON" 2>/dev/null)
 
   local mode_key="dark"
   if [ "$is_dark" = "false" ]; then
     mode_key="light"
   fi
 
+  # Pull active mode colors
   local bgBase bgDark bgHover bgButton accent ram gpu textMain textMuted border error
   bgBase=$(jq -r ".${mode_key}.bgBase" "$CACHE_JSON")
   bgDark=$(jq -r ".${mode_key}.bgDark" "$CACHE_JSON")
@@ -33,10 +35,47 @@ sync_external_themes() {
   border=$(jq -r ".${mode_key}.border" "$CACHE_JSON")
   error=$(jq -r ".${mode_key}.error" "$CACHE_JSON")
 
+  # Defaults for normal modes (Dark on Dark, Dark on Light, Light on Light)
+  local kitty_opacity="0.4"
+  local blur_size="2"
+  local blur_passes="5"
+
+  local term_bg="$bgBase"
+  local term_fg="$textMain"
+  local term_muted="$textMuted"
+  local term_accent="$accent"
+  local term_ram="$ram"
+  local term_gpu="$gpu"
+  local on_accent="$bgDark"
+  local tab_bar_bg="$bgDark"
+  local shadow_hex="${accent#\#}"
+
+  if [ "$is_dark" = "false" ]; then
+    on_accent="$bgBase"
+
+    # SPECIAL CASE: Light Theme toggled on a Dark Wallpaper
+    # 1. Almost see-through tile background (0.12) + higher Hyprland blur (size 6) so tiles never look milky white
+    # 2. Bright light pastel fonts, tab pills, and Ranger bars matching the Light Quickshell pills!
+    if [ "$wall_is_dark" = "true" ]; then
+      kitty_opacity="0.12"
+      blur_size="6"
+      blur_passes="5"
+
+      term_bg="$bgBase"
+      term_fg=$(jq -r ".dark.textMain" "$CACHE_JSON")
+      term_muted=$(jq -r ".dark.textMuted" "$CACHE_JSON")
+      term_accent="$bgBase" # Bright 84% pastel (matches Quickshell Light Pill!)
+      term_ram="$bgButton"  # Bright 78% pastel
+      term_gpu=$(jq -r ".dark.accent" "$CACHE_JSON")
+      on_accent="$textMain" # Deep dark ink inside the bright tab pills & Ranger selection bar
+      tab_bar_bg=$(jq -r ".dark.bgDark" "$CACHE_JSON")
+      shadow_hex="${bgBase#\#}"
+    fi
+  fi
+
   # Strip '#' for Hyprland rgb()/rgba() format
   local bgBase_hex="${bgBase#\#}"
   local bgDark_hex="${bgDark#\#}"
-  local bgHover_hex="${bgHover#\#}"
   local accent_hex="${accent#\#}"
   local ram_hex="${ram#\#}"
   local gpu_hex="${gpu#\#}"
@@ -46,40 +85,41 @@ sync_external_themes() {
   # 1. Write ~/.config/kitty/colors-kitty.conf (Also themes Ranger!)
   mkdir -p "$(dirname "$KITTY_COLORS")"
   cat <<EOF >"$KITTY_COLORS"
-foreground            $textMain
-background            $bgBase
-cursor                $accent
-cursor_text_color     $bgDark
+background_opacity    $kitty_opacity
+foreground            $term_fg
+background            $term_bg
+cursor                $term_accent
+cursor_text_color     $on_accent
 
-selection_foreground  $bgDark
-selection_background  $accent
+selection_foreground  $on_accent
+selection_background  $term_accent
 
-active_border_color   $accent
+active_border_color   $term_accent
 inactive_border_color $bgHover
 
-active_tab_foreground   $bgDark
-active_tab_background   $accent
-inactive_tab_foreground $textMain
-inactive_tab_background $bgHover
-tab_bar_background      $bgDark
-tab_bar_margin_color    $bgDark
+active_tab_foreground   $on_accent
+active_tab_background   $term_accent
+inactive_tab_foreground $term_fg
+inactive_tab_background $tab_bar_bg
+tab_bar_background      $tab_bar_bg
+tab_bar_margin_color    $tab_bar_bg
 
-color0                $bgDark
-color8                $textMuted
-color1                $accent
-color9                $gpu
-color2                $textMain
-color10               $ram
-color3                $gpu
-color11               $gpu
-color4                $accent
-color12               $ram
-color5                $ram
-color13               $ram
-color6                $accent
-color14               $accent
-color7                $textMain
-color15               $textMain
+color0                $on_accent
+color8                $term_muted
+color1                $term_accent
+color9                $term_gpu
+color2                $term_fg
+color10               $term_ram
+color3                $term_gpu
+color11               $term_gpu
+color4                $term_accent
+color12               $term_ram
+color5                $term_ram
+color13               $term_ram
+color6                $term_accent
+color14               $term_accent
+color7                $term_fg
+color15               $term_fg
 EOF
 
   # Hot-reload all running Kitty terminals (and Ranger inside them) via SIGUSR1
@@ -114,14 +154,14 @@ EOF
 \$color14 = rgb($accent_hex)
 \$color15 = rgb($textMain_hex)
 
-\$active_border   = rgba(${accent_hex}ee)
+\$active_border   = rgba(${shadow_hex}ee)
 \$inactive_border = rgba(${bgDark_hex}ee)
-\$shadow_color    = rgba(${accent_hex}ee)
+\$shadow_color    = rgba(${shadow_hex}ee)
 EOF
 
-  # Live-apply Hyprland borders AND window shadow outline immediately
-  if [ -n "$accent_hex" ] && [ "$accent_hex" != "null" ]; then
-    hyprctl --batch "keyword general:col.active_border rgba(${accent_hex}ee); keyword general:col.inactive_border rgba(${bgDark_hex}ee); keyword decoration:shadow:color rgba(${accent_hex}ee)" >/dev/null 2>&1 &
+  # Live-apply Hyprland borders, shadow glow, and dynamic blur strength
+  if [ -n "$shadow_hex" ] && [ "$shadow_hex" != "null" ]; then
+    hyprctl --batch "keyword general:col.active_border rgba(${shadow_hex}ee); keyword general:col.inactive_border rgba(${bgDark_hex}ee); keyword decoration:shadow:color rgba(${shadow_hex}ee); keyword decoration:inactive_opacity 0.4; keyword decoration:blur:size $blur_size; keyword decoration:blur:passes $blur_passes" >/dev/null 2>&1 &
   fi
 
   # 3. Sync GTK Dark/Light preference
@@ -168,6 +208,7 @@ if [ "$FILENAME" = "1.png" ]; then
 {
   "wallpaper": "$WALL",
   "isDark": true,
+  "wallIsDark": true,
   "dark": {
     "bgBase": "#413D38",
     "bgDark": "#34302c",
@@ -182,10 +223,10 @@ if [ "$FILENAME" = "1.png" ]; then
     "error": "#e06c75"
   },
   "light": {
-    "bgBase": "#e6e0d6",
-    "bgDark": "#d8d0c5",
-    "bgHover": "#c8bfb2",
-    "bgButton": "#ded7cc",
+    "bgBase": "#d8cebe",
+    "bgDark": "#c7bba8",
+    "bgHover": "#b5a792",
+    "bgButton": "#cfc3b1",
     "accent": "#6d5e4c",
     "hardwareRam": "#7d6f5d",
     "hardwareGpu": "#8f8271",
@@ -280,7 +321,7 @@ NR > 1 {
 
 END {
     mean_lum = (total_px > 0) ? (sum_lum / total_px) : 0.2
-    is_dark = (mean_lum > 0.62) ? "false" : "true"
+    is_dark = (mean_lum > 0.58) ? "false" : "true"
 
     best_bin = -1
     best_w = -1
@@ -316,21 +357,21 @@ END {
     d_textMute = hslToHex(H, 0.32, 0.74)
     d_border   = hslToHex(H, clamp(s_dark_acc * 0.80, 0.40, 0.70), 0.64)
 
-    s_light_surf = clamp(S * 0.75, 0.28, 0.48)
-    s_light_acc  = clamp(S * 1.15, 0.50, 0.80)
+    s_light_surf = clamp(S * 0.85, 0.34, 0.56)
+    s_light_acc  = clamp(S * 1.20, 0.52, 0.82)
 
-    l_bgBase   = hslToHex(H, s_light_surf, 0.89)
-    l_bgDark   = hslToHex(H, s_light_surf, 0.80)
-    l_bgButton = hslToHex(H, s_light_surf, 0.86)
-    l_bgHover  = hslToHex(H, s_light_surf * 1.10, 0.73)
-    l_accent   = hslToHex(H, s_light_acc, 0.36)
-    l_ram      = hslToHex(H + 18.0, clamp(s_light_acc * 0.85, 0.40, 0.70), 0.44)
-    l_gpu      = hslToHex(H - 22.0, clamp(s_light_acc * 0.75, 0.30, 0.60), 0.52)
-    l_textMain = hslToHex(H, 0.35, 0.15)
-    l_textMute = hslToHex(H, 0.28, 0.34)
-    l_border   = hslToHex(H, clamp(s_light_acc * 0.85, 0.40, 0.70), 0.40)
+    l_bgBase   = hslToHex(H, s_light_surf, 0.77)
+    l_bgDark   = hslToHex(H, s_light_surf, 0.68)
+    l_bgButton = hslToHex(H, s_light_surf, 0.73)
+    l_bgHover  = hslToHex(H, s_light_surf * 1.10, 0.61)
+    l_accent   = hslToHex(H, s_light_acc, 0.34)
+    l_ram      = hslToHex(H + 18.0, clamp(s_light_acc * 0.85, 0.42, 0.72), 0.42)
+    l_gpu      = hslToHex(H - 22.0, clamp(s_light_acc * 0.75, 0.32, 0.62), 0.48)
+    l_textMain = hslToHex(H, 0.38, 0.14)
+    l_textMute = hslToHex(H, 0.30, 0.32)
+    l_border   = hslToHex(H, clamp(s_light_acc * 0.85, 0.42, 0.72), 0.38)
 
-    printf "{\"wallpaper\":\"%s\",\"isDark\":%s,", wall, is_dark
+    printf "{\"wallpaper\":\"%s\",\"isDark\":%s,\"wallIsDark\":%s,", wall, is_dark, is_dark
     printf "\"dark\":{\"bgBase\":\"%s\",\"bgDark\":\"%s\",\"bgHover\":\"%s\",\"bgButton\":\"%s\",\"accent\":\"%s\",\"hardwareRam\":\"%s\",\"hardwareGpu\":\"%s\",\"textMain\":\"%s\",\"textMuted\":\"%s\",\"border\":\"%s\",\"error\":\"#e06c75\"},", d_bgBase, d_bgDark, d_bgHover, d_bgButton, d_accent, d_ram, d_gpu, d_textMain, d_textMute, d_border
     printf "\"light\":{\"bgBase\":\"%s\",\"bgDark\":\"%s\",\"bgHover\":\"%s\",\"bgButton\":\"%s\",\"accent\":\"%s\",\"hardwareRam\":\"%s\",\"hardwareGpu\":\"%s\",\"textMain\":\"%s\",\"textMuted\":\"%s\",\"border\":\"%s\",\"error\":\"#c94f58\"}}\n", l_bgBase, l_bgDark, l_bgHover, l_bgButton, l_accent, l_ram, l_gpu, l_textMain, l_textMute, l_border
 }
