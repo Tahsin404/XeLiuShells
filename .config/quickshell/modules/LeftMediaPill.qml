@@ -1,21 +1,19 @@
 // ~/.config/quickshell/modules/LeftMediaPill.qml
 import QtQuick
 import Quickshell
+import Quickshell.Hyprland
 import Quickshell.Io
 import "../core"
 import "../widgets/media"
 
 Scope {
     id: mediaScope
-    property bool isExpanded: false
+    readonly property bool isExpanded: GlobalState.mediaExpanded
 
     IpcHandler {
         target: "media"
         function toggle(): void {
-            mediaScope.isExpanded = !mediaScope.isExpanded;
-            if (mediaScope.isExpanded) {
-                visiblePill.forceActiveFocus();
-            }
+            GlobalState.mediaExpanded = !GlobalState.mediaExpanded;
         }
     }
 
@@ -23,6 +21,7 @@ Scope {
         model: Quickshell.screens
 
         PanelWindow {
+            id: pWin
             required property var modelData
             screen: modelData
 
@@ -39,6 +38,12 @@ Scope {
             exclusiveZone: 40
 
             focusable: mediaScope.isExpanded
+
+            HyprlandFocusGrab {
+                windows: [pWin]
+                active: mediaScope.isExpanded
+            }
+
             mask: Region {
                 item: visiblePill
             }
@@ -46,7 +51,6 @@ Scope {
             Rectangle {
                 id: visiblePill
 
-                // Passes hover state to the components
                 property bool isHovered: mouseArea.containsMouse || hardwareControls.isSliderActive
 
                 anchors.left: parent.left
@@ -60,6 +64,16 @@ Scope {
                 border.width: 2
                 border.color: Theme.border
                 clip: true
+                focus: true
+
+                Connections {
+                    target: GlobalState
+                    function onMediaExpandedChanged() {
+                        if (GlobalState.mediaExpanded) {
+                            visiblePill.forceActiveFocus();
+                        }
+                    }
+                }
 
                 Behavior on width {
                     NumberAnimation {
@@ -80,14 +94,14 @@ Scope {
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
                     onClicked: {
-                        mediaScope.isExpanded = !mediaScope.isExpanded;
-                        if (mediaScope.isExpanded)
+                        GlobalState.mediaExpanded = !GlobalState.mediaExpanded;
+                        if (GlobalState.mediaExpanded)
                             visiblePill.forceActiveFocus();
                     }
                 }
 
                 Keys.onEscapePressed: event => {
-                    mediaScope.isExpanded = false;
+                    GlobalState.closeAllPills();
                     event.accepted = true;
                 }
 

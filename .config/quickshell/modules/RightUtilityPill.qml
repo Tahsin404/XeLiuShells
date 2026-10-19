@@ -4,13 +4,28 @@ import "../core"
 import "../components"
 import QtQuick.Layouts
 import Quickshell
+import Quickshell.Hyprland
 import Quickshell.Io
 import QtQuick.Effects
 import "../widgets/utility"
 
 Scope {
     id: utilityScope
-    property bool isExpanded: false
+    property bool isExpanded: GlobalState.utilityExpanded
+    onIsExpandedChanged: {
+        if (GlobalState.utilityExpanded !== isExpanded) {
+            GlobalState.utilityExpanded = isExpanded;
+        }
+    }
+
+    Connections {
+        target: GlobalState
+        function onUtilityExpandedChanged() {
+            if (utilityScope.isExpanded !== GlobalState.utilityExpanded) {
+                utilityScope.isExpanded = GlobalState.utilityExpanded;
+            }
+        }
+    }
 
     // Passively listens to the continuous bash stream
     Process {
@@ -20,7 +35,7 @@ Scope {
         // Automatically kills the bash script when you close the widget
         running: utilityScope.isExpanded
 
-        // Quickshell's native way to read a continuous terminal stream
+        // Quickshell’s native way to read a continuous terminal stream
         stdout: SplitParser {
             onRead: data => {
                 let parts = data.trim().split(" ");
@@ -46,8 +61,7 @@ Scope {
     IpcHandler {
         target: "utility"
         function toggle(): void {
-            utilityScope.isExpanded = !utilityScope.isExpanded;
-            if (utilityScope.isExpanded) {}
+            GlobalState.utilityExpanded = !GlobalState.utilityExpanded;
         }
     }
 
@@ -55,6 +69,7 @@ Scope {
         model: Quickshell.screens
 
         PanelWindow {
+            id: pWin
             required property var modelData
             screen: modelData
 
@@ -65,7 +80,6 @@ Scope {
 
             color: "transparent"
 
-            // Uses the entire screen as a canvas to prevent Wayland window clipping
             implicitWidth: modelData.width
             implicitHeight: modelData.height
 
@@ -73,6 +87,12 @@ Scope {
             exclusiveZone: 40
 
             focusable: utilityScope.isExpanded
+
+            HyprlandFocusGrab {
+                windows: [pWin]
+                active: utilityScope.isExpanded
+            }
+
             mask: Region {
                 item: visiblePill
             }
@@ -95,6 +115,16 @@ Scope {
                 border.color: Theme.border
                 radius: Theme.radiusPill
                 clip: true
+                focus: true
+
+                Connections {
+                    target: GlobalState
+                    function onUtilityExpandedChanged() {
+                        if (GlobalState.utilityExpanded) {
+                            visiblePill.forceActiveFocus();
+                        }
+                    }
+                }
 
                 Behavior on width {
                     NumberAnimation {
@@ -114,19 +144,18 @@ Scope {
                     anchors.fill: parent
                     hoverEnabled: true
 
-                    // Show hand cursor when hovering to click open, but normal arrow when expanded
                     cursorShape: utilityScope.isExpanded ? Qt.ArrowCursor : Qt.PointingHandCursor
 
                     onClicked: {
                         if (!utilityScope.isExpanded) {
-                            utilityScope.isExpanded = true;
+                            GlobalState.utilityExpanded = true;
                             visiblePill.forceActiveFocus();
                         }
                     }
                 }
 
                 Keys.onEscapePressed: event => {
-                    utilityScope.isExpanded = false;
+                    GlobalState.closeAllPills();
                     event.accepted = true;
                 }
 
@@ -136,7 +165,6 @@ Scope {
                 Item {
                     anchors.fill: parent
 
-                    // Fades out the entire handle and grid when expanded
                     opacity: utilityScope.isExpanded ? 0 : 1
                     Behavior on opacity {
                         NumberAnimation {
@@ -148,7 +176,7 @@ Scope {
                     Item {
                         id: rightHandle
                         width: 40
-                        height: 90 // Locked to the collapsed height
+                        height: 90
                         anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
 
@@ -171,7 +199,7 @@ Scope {
                         anchors.topMargin: 20
                         anchors.bottomMargin: 20
 
-                        opacity: (visiblePill.isHovered && !isExpanded) ? 1 : 0
+                        opacity: (visiblePill.isHovered && !utilityScope.isExpanded) ? 1 : 0
                         Behavior on opacity {
                             NumberAnimation {
                                 duration: 250
@@ -187,7 +215,7 @@ Scope {
                 // ---------------------------------------------------------
                 Item {
                     anchors.fill: parent
-                    opacity: isExpanded ? 1 : 0
+                    opacity: utilityScope.isExpanded ? 1 : 0
                     visible: opacity > 0
 
                     Column {
@@ -203,7 +231,7 @@ Scope {
                     Behavior on opacity {
                         SequentialAnimation {
                             PauseAnimation {
-                                duration: isExpanded ? 150 : 0
+                                duration: utilityScope.isExpanded ? 150 : 0
                             }
                             NumberAnimation {
                                 duration: 250
