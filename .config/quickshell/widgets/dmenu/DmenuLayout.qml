@@ -2,6 +2,7 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Effects
+import Quickshell.Io
 import "../../core"
 
 RowLayout {
@@ -281,7 +282,9 @@ RowLayout {
         }
     }
 
+    // LEFT COLUMN: Interactive Sliding GIF Showcase
     Rectangle {
+        id: gifFrame
         Layout.fillHeight: true
         Layout.preferredWidth: 300
         radius: 12
@@ -289,23 +292,140 @@ RowLayout {
         border.color: Theme.border
         border.width: 2
 
+        property var gifList: ["../../assets/gifs/art1.gif", "../../assets/gifs/art2.gif", "../../assets/gifs/art3.gif", "../../assets/gifs/art4.gif", "../../assets/gifs/art5.gif"]
+        property int currentGifIndex: 4 // Starts on art5.gif by default
+        property bool isSliding: false
+        property bool isHovered: gifHoverHandler.hovered
+
+        // Dynamically scans ~/.config/quickshell/assets/gifs for all .gif files & restores saved index
+        Process {
+            id: loadGifsProc
+            running: true
+            command: ["bash", "-c", "idx=$(cat \"$HOME/.cache/quickshell_gif_index\" 2>/dev/null || echo 4); " + "echo \"IDX:$idx\"; " + "find \"$HOME/.config/quickshell/assets/gifs\" -maxdepth 1 -type f -iname '*.gif' 2>/dev/null | sort -V"]
+            stdout: StdioCollector {
+                onStreamFinished: {
+                    let lines = text.trim().split("\n");
+                    let found = [];
+                    let savedIdx = 4;
+                    for (let i = 0; i < lines.length; i++) {
+                        let line = lines[i].trim();
+                        if (line.startsWith("IDX:")) {
+                            let parsed = parseInt(line.substring(4));
+                            if (!isNaN(parsed))
+                                savedIdx = parsed;
+                        } else if (line !== "") {
+                            found.push("file://" + line);
+                        }
+                    }
+                    if (found.length > 0) {
+                        gifFrame.gifList = found;
+                        gifFrame.currentGifIndex = ((savedIdx % found.length) + found.length) % found.length;
+                    }
+                }
+            }
+        }
+
+        function triggerGifSlide(direction) {
+            if (isSliding || gifList.length <= 1)
+                return;
+
+            let count = gifList.length;
+            let nextIdx = (currentGifIndex + direction + count) % count;
+            slideToGifIndex(nextIdx, direction);
+        }
+
+        function slideToGifIndex(targetIdx, forcedDir) {
+            if (isSliding || gifList.length <= 1 || targetIdx === currentGifIndex)
+                return;
+
+            isSliding = true;
+            let dir = forcedDir !== undefined ? forcedDir : (targetIdx > currentGifIndex ? 1 : -1);
+
+            gifSlideAnim.direction = dir;
+            gifSlideAnim.nextIndex = targetIdx;
+            gifSlideAnim.start();
+
+            Backend.run("echo " + targetIdx + " > $HOME/.cache/quickshell_gif_index");
+        }
+
+        // Exact Calendar-style Sliding Window Animation (Slide + Fade Out -> Swap -> Slide + Fade In)
+        SequentialAnimation {
+            id: gifSlideAnim
+            property int direction: 1
+            property int nextIndex: 0
+
+            ParallelAnimation {
+                NumberAnimation {
+                    target: gifImage
+                    property: "opacity"
+                    to: 0
+                    duration: 150
+                }
+                NumberAnimation {
+                    target: gifTranslate
+                    property: "x"
+                    to: gifSlideAnim.direction * -65
+                    duration: 150
+                    easing.type: Easing.InCubic
+                }
+            }
+            ScriptAction {
+                script: {
+                    gifFrame.currentGifIndex = gifSlideAnim.nextIndex;
+                    gifTranslate.x = gifSlideAnim.direction * 65;
+                }
+            }
+            ParallelAnimation {
+                NumberAnimation {
+                    target: gifImage
+                    property: "opacity"
+                    to: 1
+                    duration: 180
+                }
+                NumberAnimation {
+                    target: gifTranslate
+                    property: "x"
+                    to: 0
+                    duration: 180
+                    easing.type: Easing.OutCubic
+                }
+            }
+            ScriptAction {
+                script: {
+                    gifFrame.isSliding = false;
+                }
+            }
+        }
+
+        HoverHandler {
+            id: gifHoverHandler
+        }
+
         Item {
             anchors.fill: parent
             anchors.margins: 2
 
+            // 1. Offscreen Masked Container
             Item {
                 id: gifContainer
                 anchors.fill: parent
                 visible: false
                 layer.enabled: true
+                clip: true
 
                 AnimatedImage {
+                    id: gifImage
                     anchors.fill: parent
-                    source: "../../assets/gifs/art5.gif"
+                    source: gifFrame.gifList.length > 0 ? gifFrame.gifList[gifFrame.currentGifIndex] : ""
                     fillMode: Image.PreserveAspectCrop
+                    transform: Translate {
+                        id: gifTranslate
+                        x: 0
+                    }
                 }
             }
 
+            // 2. Rounded Mask Shape
             ShaderEffectSource {
                 id: gifMask
                 sourceItem: Rectangle {
@@ -316,11 +436,172 @@ RowLayout {
                 }
             }
 
+            // 3. MultiEffect Rounded Output
             MultiEffect {
                 anchors.fill: gifContainer
                 source: gifContainer
                 maskEnabled: true
                 maskSource: gifMask
+            }
+
+            // Mouse Wheel Support
+            MouseArea {
+                anchors.fill: parent
+                acceptedButtons: Qt.NoButton
+                onWheel: wheel => {
+                    gifFrame.triggerGifSlide(wheel.angleDelta.y < 0 ? 1 : -1);
+                }
+            }
+
+            // LEFT CIRCULAR SLIDE BUTTON
+            Rectangle {
+                id: leftArrowBtn
+                width: 36
+                height: 36
+                radius: 18
+                anchors.left: parent.left
+                anchors.leftMargin: 10
+                anchors.verticalCenter: parent.verticalCenter
+
+                color: leftArrowMouse.pressed ? Theme.accent : (leftArrowMouse.containsMouse ? Theme.bgHover : Qt.rgba(0, 0, 0, 0.55))
+                border.width: 1
+                border.color: leftArrowMouse.containsMouse ? Theme.accent : Theme.border
+
+                opacity: gifFrame.isHovered ? 1.0 : 0.0
+                Behavior on opacity {
+                    NumberAnimation {
+                        duration: 180
+                    }
+                }
+                Behavior on color {
+                    ColorAnimation {
+                        duration: 150
+                    }
+                }
+
+                Text {
+                    anchors.centerIn: parent
+                    anchors.horizontalCenterOffset: -1
+                    text: ""
+                    color: leftArrowMouse.pressed ? Theme.bgDark : Theme.textMain
+                    font.family: Theme.fontName
+                    font.pixelSize: 14
+                    font.bold: true
+                }
+
+                MouseArea {
+                    id: leftArrowMouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: gifFrame.triggerGifSlide(-1)
+                }
+            }
+
+            // RIGHT CIRCULAR SLIDE BUTTON
+            Rectangle {
+                id: rightArrowBtn
+                width: 36
+                height: 36
+                radius: 18
+                anchors.right: parent.right
+                anchors.rightMargin: 10
+                anchors.verticalCenter: parent.verticalCenter
+
+                color: rightArrowMouse.pressed ? Theme.accent : (rightArrowMouse.containsMouse ? Theme.bgHover : Qt.rgba(0, 0, 0, 0.55))
+                border.width: 1
+                border.color: rightArrowMouse.containsMouse ? Theme.accent : Theme.border
+
+                opacity: gifFrame.isHovered ? 1.0 : 0.0
+                Behavior on opacity {
+                    NumberAnimation {
+                        duration: 180
+                    }
+                }
+                Behavior on color {
+                    ColorAnimation {
+                        duration: 150
+                    }
+                }
+
+                Text {
+                    anchors.centerIn: parent
+                    anchors.horizontalCenterOffset: 1
+                    text: ""
+                    color: rightArrowMouse.pressed ? Theme.bgDark : Theme.textMain
+                    font.family: Theme.fontName
+                    font.pixelSize: 14
+                    font.bold: true
+                }
+
+                MouseArea {
+                    id: rightArrowMouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: gifFrame.triggerGifSlide(1)
+                }
+            }
+
+            // BOTTOM PAGINATION DOTS
+            Rectangle {
+                id: dotsBackdrop
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: 10
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: dotsRow.implicitWidth + 16
+                height: 16
+                radius: 8
+                color: Qt.rgba(0, 0, 0, 0.45)
+                border.width: 1
+                border.color: Qt.rgba(1, 1, 1, 0.15)
+                visible: gifFrame.gifList.length > 1
+
+                opacity: gifFrame.isHovered ? 1.0 : 0.75
+                Behavior on opacity {
+                    NumberAnimation {
+                        duration: 180
+                    }
+                }
+
+                Row {
+                    id: dotsRow
+                    anchors.centerIn: parent
+                    spacing: 6
+
+                    Repeater {
+                        model: gifFrame.gifList.length
+
+                        Rectangle {
+                            required property int index
+                            readonly property bool isCurrent: index === gifFrame.currentGifIndex
+
+                            width: isCurrent ? 16 : 6
+                            height: 6
+                            radius: 3
+                            color: isCurrent ? "#ffffff" : Qt.rgba(1, 1, 1, 0.4)
+
+                            Behavior on width {
+                                NumberAnimation {
+                                    duration: 250
+                                    easing.type: Easing.OutBack
+                                }
+                            }
+                            Behavior on color {
+                                ColorAnimation {
+                                    duration: 200
+                                }
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                anchors.margins: -3
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: gifFrame.slideToGifIndex(index)
+                            }
+                        }
+                    }
+                }
             }
         }
     }
