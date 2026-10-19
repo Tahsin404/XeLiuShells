@@ -26,31 +26,30 @@ Item {
         onTriggered: backendEngine.init()
     }
 
-    // --- 3. CLOCK TICKER & CALENDAR API ---
-    // Standard XMLHttpRequest for Nager.Date API (Bangladesh)
-    function fetchEvents(year) {
-        var xhr = new XMLHttpRequest();
-        var url = "https://date.nager.at/api/v3/PublicHolidays/" + year + "/BD";
-
-        GlobalState.apiStatus = "API: Fetching...";
-
-        xhr.open("GET", url);
-        xhr.onreadystatechange = function () {
-            if (xhr.readyState === XMLHttpRequest.DONE) {
-                if (xhr.status === 200) {
-                    var response = JSON.parse(xhr.responseText);
-                    var dates = [];
-                    for (var i = 0; i < response.length; i++) {
-                        dates.push(response[i].date);
+    // --- 3. CLOCK TICKER & CALENDAR HOLIDAY ENGINE ---
+    Process {
+        id: fetchHolidaysProcess
+        stdout: StdioCollector {
+            onStreamFinished: {
+                let out = text.trim();
+                if (out.length > 0) {
+                    try {
+                        let parsed = JSON.parse(out);
+                        GlobalState.eventDates = parsed.dates || [];
+                        GlobalState.eventNames = parsed.names || ({});
+                        GlobalState.apiStatus = "Holidays: " + GlobalState.eventDates.length + " loaded";
+                    } catch (e) {
+                        GlobalState.apiStatus = "Holidays: Parse Error";
                     }
-                    GlobalState.eventDates = [].concat(dates);
-                    GlobalState.apiStatus = "API: Success (" + dates.length + ")";
-                } else {
-                    GlobalState.apiStatus = "API: Error HTTP " + xhr.status;
                 }
             }
-        };
-        xhr.send();
+        }
+    }
+
+    function fetchEvents(year) {
+        GlobalState.apiStatus = "Holidays: Loading...";
+        fetchHolidaysProcess.command = ["bash", "-c", "$HOME/.config/quickshell/scripts/get_bd_holidays.sh " + year];
+        fetchHolidaysProcess.running = true;
     }
 
     Timer {
@@ -74,6 +73,7 @@ Item {
         btSync.running = true;
         dndSync.running = true;
         micSync.running = true;
+        btSync.running = true;
         fetchVolumeProcess.running = true;
     }
 
@@ -103,7 +103,26 @@ Item {
             onRead: data => GlobalState.micMuted = (data.trim() === 'true')
         }
     }
-
+    // Checks true Laptop Battery state & percentage (ignores wireless mouse/controller batteries)
+    Process {
+        id: batSync
+        command: ["bash", "-c", "for psy in /sys/class/power_supply/*; do " + "  [ -f \"$psy/type\" ] && [ \"$(cat \"$psy/type\" 2>/dev/null)\" = \"Battery\" ] || continue; " + "  [ \"$(cat \"$psy/scope\" 2>/dev/null)\" = \"Device\" ] && continue; " + "  if [ -f \"$psy/capacity\" ]; then " + "    echo \"true $(cat \"$psy/capacity\" 2>/dev/null)\"; exit 0; " + "  fi; " + "done; " + "echo \"false 0\""]
+        stdout: SplitParser {
+            onRead: data => {
+                let parts = data.trim().split(" ");
+                if (parts.length >= 2) {
+                    let isBat = (parts[0] === "true");
+                    GlobalState.isLaptop = isBat;
+                    if (isBat) {
+                        let cap = parseFloat(parts[1]);
+                        if (!isNaN(cap)) {
+                            GlobalState.batteryLevel = Math.max(0.0, Math.min(1.0, cap / 100.0));
+                        }
+                    }
+                }
+            }
+        }
+    }
     // --- 4. DMENU / APP LAUNCHER & WALLPAPER ENGINE ---
 
     // Reads your click history to dynamically sort recommended apps
@@ -408,6 +427,7 @@ Item {
 
     // Initialize media & theme states on startup
     Component.onCompleted: {
+        batSync.running = true;
         fetchVolumeProcess.running = true;
         fetchBrightnessProcess.running = true;
         loadSavedThemeProcess.running = true;

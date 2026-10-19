@@ -5,6 +5,17 @@ import QtQuick
 Item {
     id: globalState
 
+    // --- EXPANDED PILL STATES ---
+    property bool mediaExpanded: false
+    property bool clockExpanded: false
+    property bool utilityExpanded: false
+
+    function closeAllPills() {
+        mediaExpanded = false;
+        clockExpanded = false;
+        utilityExpanded = false;
+    }
+
     // --- SYSTEM TOGGLES ---
     property bool wifiOn: true
     property bool btOn: false
@@ -31,6 +42,7 @@ Item {
     property int currentMonth: 0
     property int currentYear: 0
     property var eventDates: []
+    property var eventNames: ({})
     property string apiStatus: "API: Waiting..."
 
     // --- DMENU / APP LAUNCHER STATES ---

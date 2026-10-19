@@ -1,20 +1,19 @@
 // ~/.config/quickshell/modules/ClockPill.qml
 import QtQuick
 import Quickshell
+import Quickshell.Hyprland
 import Quickshell.Io
 import "../core"
 import "../widgets/topbar"
 
 Scope {
     id: clockScope
-    property bool isExpanded: false
+    readonly property bool isExpanded: GlobalState.clockExpanded
 
     IpcHandler {
         target: "clock"
         function toggle(): void {
-            clockScope.isExpanded = !clockScope.isExpanded;
-            if (clockScope.isExpanded)
-                visiblePill.forceActiveFocus();
+            GlobalState.clockExpanded = !GlobalState.clockExpanded;
         }
     }
 
@@ -22,6 +21,7 @@ Scope {
         model: Quickshell.screens
 
         PanelWindow {
+            id: pWin
             required property var modelData
             screen: modelData
 
@@ -38,6 +38,11 @@ Scope {
             exclusiveZone: 45
             focusable: clockScope.isExpanded
 
+            HyprlandFocusGrab {
+                windows: [pWin]
+                active: clockScope.isExpanded
+            }
+
             mask: Region {
                 item: visiblePill
             }
@@ -48,7 +53,6 @@ Scope {
                 anchors.top: parent.top
                 anchors.horizontalCenter: parent.horizontalCenter
 
-                // Dynamic width driven by the carousel state!
                 width: clockScope.isExpanded ? (parent.width) : (compactClock.isHovered ? Math.max(350, compactClock.dynamicHoverWidth) : 190)
                 height: clockScope.isExpanded ? 700 : 40
 
@@ -59,8 +63,17 @@ Scope {
                 clip: true
                 focus: true
 
+                Connections {
+                    target: GlobalState
+                    function onClockExpandedChanged() {
+                        if (GlobalState.clockExpanded) {
+                            visiblePill.forceActiveFocus();
+                        }
+                    }
+                }
+
                 Keys.onEscapePressed: event => {
-                    clockScope.isExpanded = false;
+                    GlobalState.closeAllPills();
                     event.accepted = true;
                 }
 
@@ -90,8 +103,8 @@ Scope {
                     }
 
                     onToggleExpand: {
-                        clockScope.isExpanded = !clockScope.isExpanded;
-                        if (clockScope.isExpanded)
+                        GlobalState.clockExpanded = !GlobalState.clockExpanded;
+                        if (GlobalState.clockExpanded)
                             visiblePill.forceActiveFocus();
                     }
                 }

@@ -12,6 +12,16 @@ Item {
 
     property int displayMonth: new Date().getMonth()
     property int displayYear: new Date().getFullYear()
+    onDisplayYearChanged: Backend.fetchEvents(displayYear)
+
+    onIsExpandedChanged: {
+        if (isExpanded) {
+            let now = new Date();
+            displayMonth = now.getMonth();
+            displayYear = now.getFullYear();
+            Backend.fetchEvents(displayYear);
+        }
+    }
     property bool isNavigating: false
 
     function triggerScroll(isMonth, direction) {
@@ -261,8 +271,13 @@ Item {
                     locale: Qt.locale()
                     delegate: Rectangle {
                         required property var model
+                        readonly property string dateKey: Qt.formatDate(model.date, "yyyy-MM-dd")
+                        readonly property bool isHoliday: model.month === monthGrid.month && GlobalState.eventDates.indexOf(dateKey) !== -1
+                        readonly property string holidayName: (isHoliday && GlobalState.eventNames[dateKey]) ? GlobalState.eventNames[dateKey] : ""
+
                         color: dayMouseArea.containsMouse ? (model.today ? "transparent" : Theme.bgHover) : "transparent"
                         radius: 15
+
                         MouseArea {
                             id: dayMouseArea
                             anchors.fill: parent
@@ -274,6 +289,28 @@ Item {
                                 mouse.accepted = false;
                             }
                         }
+
+                        ToolTip {
+                            visible: dayMouseArea.containsMouse && holidayName !== ""
+                            delay: 150
+                            text: holidayName
+                            y: -36
+
+                            contentItem: Text {
+                                text: holidayName
+                                color: Theme.textMain
+                                font.family: Theme.fontName
+                                font.pixelSize: 13
+                                font.bold: true
+                            }
+                            background: Rectangle {
+                                color: Theme.bgDark
+                                border.width: 1
+                                border.color: Theme.accent
+                                radius: 8
+                            }
+                        }
+
                         Rectangle {
                             anchors.centerIn: parent
                             width: 60
@@ -291,20 +328,17 @@ Item {
                             font.pixelSize: 24
                             font.weight: model.month === monthGrid.month ? Font.DemiBold : Font.Light
                             opacity: model.month === monthGrid.month ? 1.0 : 0.3
-                            color: Theme.textMain
+                            color: isHoliday ? Theme.accent : Theme.textMain
                         }
                         Rectangle {
-                            width: 4
-                            height: 4
-                            radius: 2
+                            width: 6
+                            height: 6
+                            radius: 3
                             color: Theme.accent
                             anchors.top: dayText.bottom
                             anchors.topMargin: 2
                             anchors.horizontalCenter: parent.horizontalCenter
-                            visible: {
-                                var loadedDates = GlobalState.eventDates;
-                                return loadedDates.indexOf(Qt.formatDate(model.date, "yyyy-MM-dd")) !== -1 && model.month === monthGrid.month;
-                            }
+                            visible: isHoliday
                         }
                     }
                 }
