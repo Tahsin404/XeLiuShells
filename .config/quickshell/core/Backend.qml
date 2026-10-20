@@ -48,7 +48,7 @@ Item {
 
     function fetchEvents(year) {
         GlobalState.apiStatus = "Holidays: Loading...";
-        fetchHolidaysProcess.command = ["bash", "-c", "$HOME/.config/quickshell/scripts/get_bd_holidays.sh " + year];
+        fetchHolidaysProcess.command = ["bash", "-c", "$HOME/.config/quickshell/scripts/get_holidays.sh " + year];
         fetchHolidaysProcess.running = true;
     }
 
@@ -73,7 +73,7 @@ Item {
         btSync.running = true;
         dndSync.running = true;
         micSync.running = true;
-        btSync.running = true;
+        batSync.running = true;
         fetchVolumeProcess.running = true;
     }
 
