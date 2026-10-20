@@ -17,69 +17,6 @@ RowLayout {
     property bool keyboardNavActive: false
     property real lastMouseX: -1
     property real lastMouseY: -1
-    property int modelRevision: 0
-
-    // Computes the clean command/app string for whichever item is currently highlighted
-    readonly property string selectedPreviewTarget: {
-        let _rev = root.modelRevision;
-        let idx = resultsList.currentIndex;
-        if (!GlobalState.filteredAppsModel || idx < 0 || idx >= GlobalState.filteredAppsModel.count)
-            return "";
-
-        let item = GlobalState.filteredAppsModel.get(idx);
-        if (!item)
-            return "";
-
-        if (item.execCmd === "__WALLPAPER_MODE__")
-            return "> wallpaper";
-        if (item.execCmd === "__CMD_INSTALL_PROMPT__")
-            return "> install wallpaper ~/Downloads/";
-        if (item.execCmd && item.execCmd.startsWith("__CMD_INSTALL_FILE__:"))
-            return "> install wallpaper " + item.execCmd.substring("__CMD_INSTALL_FILE__:".length);
-        if (item.execCmd === "__CMD_TOGGLE_THEME__")
-            return "> toggle theme";
-        if (item.execCmd === "__CMD_RELOAD_WALLPAPERS__")
-            return "> reload wallpapers";
-
-        return item.name || "";
-    }
-
-    // Computes the faded italic ghost text to display right after the user's typed text
-    readonly property string ghostDisplayText: {
-        let target = root.selectedPreviewTarget;
-        if (target === "")
-            return "";
-
-        let typed = searchInput.text;
-
-        if (typed === "") {
-            return target;
-        }
-
-        // 1. Direct case-insensitive prefix match (e.g. "zen" -> " Browser")
-        if (target.toLowerCase().startsWith(typed.toLowerCase())) {
-            return target.substring(typed.length);
-        }
-
-        // 2. Command-mode prefix match that ignores spacing after '>' (e.g. ">wall" or "> wall")
-        if (typed.trim().startsWith(">") && target.startsWith(">")) {
-            let gtIdx = typed.indexOf(">");
-            let typedAfterGt = typed.substring(gtIdx + 1);
-            let typedCmdTrimmed = typedAfterGt.trimStart();
-            let targetCmd = target.substring(1).trimStart();
-
-            if (targetCmd.toLowerCase().startsWith(typedCmdTrimmed.toLowerCase())) {
-                let rem = targetCmd.substring(typedCmdTrimmed.length);
-                if (typedAfterGt === "" && !rem.startsWith(" ")) {
-                    return " " + rem;
-                }
-                return rem;
-            }
-        }
-
-        // 3. When navigating via arrow keys (or matching via search tags), show the selected item inline
-        return "  —  " + target;
-    }
 
     // Populates live file suggestions when the user is typing "> install wallpaper ..."
     Connections {
@@ -96,34 +33,35 @@ RowLayout {
             GlobalState.filteredAppsModel.clear();
             let typedArg = cmdBody.substring("install wallpaper".length).trim();
 
-            // Always show the exact path the user typed at the very top if non-empty
             if (typedArg !== "") {
                 GlobalState.filteredAppsModel.append({
-                    name: "Install: " + typedArg,
+                    name: "install wallpaper",
+                    description: "Install from path: " + typedArg,
                     icon: "",
                     execCmd: "__CMD_INSTALL_FILE__:" + typedArg,
                     searchTags: "",
+                    isCommand: true,
                     score: 1000000
                 });
             }
 
-            // Append matching image files from the scanned folder (e.g., ~/Downloads)
             for (let i = 0; i < files.length; i++) {
                 let f = files[i].trim();
                 if (f !== "" && f !== typedArg) {
                     let fname = f.split("/").pop();
                     GlobalState.filteredAppsModel.append({
-                        name: fname + "  (" + f + ")",
+                        name: fname,
+                        description: f,
                         icon: "",
                         execCmd: "__CMD_INSTALL_FILE__:" + f,
                         searchTags: "",
+                        isCommand: true,
                         score: 999999 - i
                     });
                 }
             }
 
             resultsList.currentIndex = GlobalState.filteredAppsModel.count > 0 ? 0 : -1;
-            root.modelRevision++;
         }
     }
 
@@ -134,58 +72,73 @@ RowLayout {
 
         let trimmed = rawText.trim();
 
-        // --- 1. COMMAND MODE (Requires '>' prefix) ---
+        // --- 1. COMMAND MODE (Triggered by '>') ---
         if (trimmed.startsWith(">")) {
             let cmdQuery = trimmed.substring(1).trim();
             let cmdLower = cmdQuery.toLowerCase();
 
-            // If typing "> install wallpaper ...", trigger live image file scan
+            // Live file scanner when typing "> install wallpaper ..."
             if (cmdLower.startsWith("install wallpaper")) {
                 let arg = cmdQuery.substring("install wallpaper".length).trim();
                 if (arg !== "") {
                     GlobalState.filteredAppsModel.append({
-                        name: "Install: " + arg,
+                        name: "install wallpaper",
+                        description: "Install from path: " + arg,
                         icon: "",
                         execCmd: "__CMD_INSTALL_FILE__:" + arg,
                         searchTags: "",
+                        isCommand: true,
                         score: 1000000
                     });
                 } else {
                     GlobalState.filteredAppsModel.append({
-                        name: "Scanning ~/Downloads for images... (or type a path)",
+                        name: "install wallpaper",
+                        description: "Scanning ~/Downloads for images... (or type a file path)",
                         icon: "",
                         execCmd: "__CMD_INSTALL_PROMPT__",
                         searchTags: "",
+                        isCommand: true,
                         score: 1000000
                     });
                 }
                 resultsList.currentIndex = 0;
-                root.modelRevision++;
                 Backend.scanCandidateWallpapers(arg);
                 return;
             }
 
+            // Phase 2 Command Roster (Short, punchy descriptions that never clip)
             let systemCommands = [
                 {
-                    name: "> wallpaper  —  Open 3D Wallpaper & Theme Switcher",
+                    name: "Wallpaper",
+                    description: "Open wallpaper & theme switcher",
                     icon: "",
                     execCmd: "__WALLPAPER_MODE__",
                     matchKey: "wallpaper theme background carousel"
                 },
                 {
-                    name: "> install wallpaper <path>  —  Add image to Wallpaper Arsenal",
+                    name: "Keybinds",
+                    description: "Edit or reset shell shortcuts",
+                    icon: "",
+                    execCmd: "__KEYBINDS_MODE__",
+                    matchKey: "keybinds shortcuts hotkeys binds f6 f7 f8 super win"
+                },
+                {
+                    name: "Install wallpaper",
+                    description: "Add new image to wallpapers",
                     icon: "",
                     execCmd: "__CMD_INSTALL_PROMPT__",
                     matchKey: "install wallpaper add copy download image"
                 },
                 {
-                    name: "> toggle theme  —  Switch Dark / Light Mode",
+                    name: "Toggle theme",
+                    description: "Switch Dark and Light mode",
                     icon: "",
                     execCmd: "__CMD_TOGGLE_THEME__",
                     matchKey: "toggle theme dark light mode polarity"
                 },
                 {
-                    name: "> reload wallpapers  —  Rescan Wallpapers & Thumbnails",
+                    name: "Reload wallpapers",
+                    description: "Refresh wallpapers & thumbnails",
                     icon: "",
                     execCmd: "__CMD_RELOAD_WALLPAPERS__",
                     matchKey: "reload refresh wallpapers thumbnails"
@@ -194,18 +147,19 @@ RowLayout {
 
             for (let i = 0; i < systemCommands.length; i++) {
                 let c = systemCommands[i];
-                if (cmdLower === "" || c.matchKey.includes(cmdLower) || c.name.toLowerCase().includes(cmdLower)) {
+                if (cmdLower === "" || c.matchKey.includes(cmdLower) || c.name.toLowerCase().includes(cmdLower) || c.description.toLowerCase().includes(cmdLower)) {
                     GlobalState.filteredAppsModel.append({
                         name: c.name,
+                        description: c.description,
                         icon: c.icon,
                         execCmd: c.execCmd,
                         searchTags: c.matchKey,
+                        isCommand: true,
                         score: 999999 - i
                     });
                 }
             }
             resultsList.currentIndex = GlobalState.filteredAppsModel.count > 0 ? 0 : -1;
-            root.modelRevision++;
             return;
         }
 
@@ -219,9 +173,11 @@ RowLayout {
             if (query === "" || app.name.toLowerCase().includes(query) || tags.includes(query)) {
                 tempArr.push({
                     name: app.name,
+                    description: "",
                     icon: app.icon,
                     execCmd: app.execCmd,
                     searchTags: app.searchTags,
+                    isCommand: false,
                     score: GlobalState.historyCounts[app.name] || 0
                 });
             }
@@ -234,7 +190,6 @@ RowLayout {
         }
 
         resultsList.currentIndex = GlobalState.filteredAppsModel.count > 0 ? 0 : -1;
-        root.modelRevision++;
         if (resultsList.currentIndex === 0) {
             resultsList.positionViewAtBeginning();
         }
@@ -243,6 +198,10 @@ RowLayout {
     function executeEntry(name, execCmd) {
         if (execCmd === "__WALLPAPER_MODE__") {
             GlobalState.isWallpaperMode = true;
+            return;
+        }
+        if (execCmd === "__KEYBINDS_MODE__") {
+            GlobalState.isKeybindsMode = true;
             return;
         }
         if (execCmd === "__CMD_INSTALL_PROMPT__") {
@@ -272,7 +231,10 @@ RowLayout {
     }
 
     onVisibleChanged: {
-        if (visible && !GlobalState.isWallpaperMode) {
+        if (visible && !GlobalState.isWallpaperMode && !GlobalState.isKeybindsMode) {
+            root.keyboardNavActive = false;
+            root.lastMouseX = -1;
+            root.lastMouseY = -1;
             searchInput.text = "";
             updateSearch("");
             searchInput.forceActiveFocus();
@@ -291,13 +253,12 @@ RowLayout {
         border.width: 2
 
         property var gifList: ["../../assets/gifs/art.gif", "../../assets/gifs/art2.gif", "../../assets/gifs/art3.gif", "../../assets/gifs/art4.gif", "../../assets/gifs/art5.gif"]
-        property int currentGifIndex: 4 // Starts on art5.gif by default
+        property int currentGifIndex: 4
         property int maxVisibleDots: 5
         property int dotWindowStart: 0
         property bool isSliding: false
         property bool isHovered: gifHoverHandler.hovered
 
-        // Keeps the 5-dot sliding window synced with currentGifIndex
         function updateDotWindow() {
             let total = gifList.length;
             if (total <= maxVisibleDots) {
@@ -309,7 +270,6 @@ RowLayout {
             } else if (currentGifIndex >= dotWindowStart + maxVisibleDots) {
                 dotWindowStart = currentGifIndex - maxVisibleDots + 1;
             }
-            // Clamp in case files were deleted from the folder
             let maxStart = Math.max(0, total - maxVisibleDots);
             if (dotWindowStart > maxStart) {
                 dotWindowStart = maxStart;
@@ -319,7 +279,6 @@ RowLayout {
         onCurrentGifIndexChanged: updateDotWindow()
         onGifListChanged: updateDotWindow()
 
-        // Dynamically scans ~/.config/quickshell/assets/gifs for all .gif files & restores saved index
         Process {
             id: loadGifsProc
             running: true
@@ -371,7 +330,6 @@ RowLayout {
             Backend.run("echo " + targetIdx + " > $HOME/.cache/quickshell_gif_index");
         }
 
-        // Exact Calendar-style Sliding Window Animation (Slide + Fade Out -> Swap -> Slide + Fade In)
         SequentialAnimation {
             id: gifSlideAnim
             property int direction: 1
@@ -428,7 +386,6 @@ RowLayout {
             anchors.fill: parent
             anchors.margins: 2
 
-            // 1. Offscreen Masked Container
             Item {
                 id: gifContainer
                 anchors.fill: parent
@@ -448,7 +405,6 @@ RowLayout {
                 }
             }
 
-            // 2. Rounded Mask Shape
             ShaderEffectSource {
                 id: gifMask
                 sourceItem: Rectangle {
@@ -459,7 +415,6 @@ RowLayout {
                 }
             }
 
-            // 3. MultiEffect Rounded Output
             MultiEffect {
                 anchors.fill: gifContainer
                 source: gifContainer
@@ -467,7 +422,6 @@ RowLayout {
                 maskSource: gifMask
             }
 
-            // Mouse Wheel Support
             MouseArea {
                 anchors.fill: parent
                 acceptedButtons: Qt.NoButton
@@ -476,7 +430,6 @@ RowLayout {
                 }
             }
 
-            // LEFT CIRCULAR SLIDE BUTTON
             Rectangle {
                 id: leftArrowBtn
                 width: 36
@@ -521,7 +474,6 @@ RowLayout {
                 }
             }
 
-            // RIGHT CIRCULAR SLIDE BUTTON
             Rectangle {
                 id: rightArrowBtn
                 width: 36
@@ -566,7 +518,6 @@ RowLayout {
                 }
             }
 
-            // BOTTOM PAGINATION DOTS (Physical Sliding Track + Shrinking/Growing Edge Dots)
             Rectangle {
                 id: dotsBackdrop
                 anchors.bottom: parent.bottom
@@ -574,7 +525,6 @@ RowLayout {
                 anchors.horizontalCenter: parent.horizontalCenter
 
                 readonly property int visibleCount: Math.min(gifFrame.maxVisibleDots, gifFrame.gifList.length)
-                // Exact width for N visible dots: (N - 1) * (6px dot + 6px spacing) + 16px active pill
                 readonly property int viewportWidth: visibleCount > 0 ? ((visibleCount - 1) * 12 + 16) : 0
 
                 width: viewportWidth + 16
@@ -603,8 +553,6 @@ RowLayout {
                         id: dotsTrack
                         anchors.verticalCenter: parent.verticalCenter
                         spacing: 6
-
-                        // Physically shifts the entire track left/right by 12px (6px dot + 6px spacing) per step!
                         x: -gifFrame.dotWindowStart * 12
 
                         Behavior on x {
@@ -626,8 +574,6 @@ RowLayout {
                                 height: 6
                                 radius: 3
                                 color: isCurrent ? "#ffffff" : Qt.rgba(1, 1, 1, 0.4)
-
-                                // Dots exiting/entering the 5-dot window smoothly shrink/grow and fade out/in!
                                 opacity: inWindow ? 1.0 : 0.0
                                 scale: inWindow ? 1.0 : 0.0
 
@@ -670,6 +616,7 @@ RowLayout {
         }
     }
 
+    // RIGHT COLUMN: Search Bar & Smart Results List
     ColumnLayout {
         Layout.fillHeight: true
         Layout.fillWidth: true
@@ -705,21 +652,12 @@ RowLayout {
                     verticalAlignment: TextInput.AlignVCenter
                     clip: true
 
-                    // Faded, italic inline ghost-text preview of the currently highlighted item
                     Text {
-                        id: ghostLabel
-                        x: searchInput.contentWidth
-                        width: Math.max(0, searchInput.width - x)
-                        height: searchInput.height
-                        verticalAlignment: Text.AlignVCenter
-                        text: root.ghostDisplayText
+                        text: "Search apps or type '>' for commands..."
                         color: Theme.textMuted
-                        opacity: 0.65
                         font.family: Theme.fontName
                         font.pixelSize: 16
-                        font.italic: true
-                        elide: Text.ElideRight
-                        visible: text !== ""
+                        visible: !searchInput.text && !searchInput.activeFocus
                     }
 
                     onTextChanged: root.updateSearch(text)
@@ -745,9 +683,19 @@ RowLayout {
                     }
 
                     Keys.onTabPressed: event => {
-                        if (root.selectedPreviewTarget !== "") {
-                            searchInput.text = root.selectedPreviewTarget;
-                            searchInput.cursorPosition = searchInput.text.length;
+                        if (GlobalState.filteredAppsModel && resultsList.currentIndex >= 0 && resultsList.currentIndex < resultsList.count) {
+                            let item = GlobalState.filteredAppsModel.get(resultsList.currentIndex);
+                            if (item.execCmd === "__CMD_INSTALL_PROMPT__") {
+                                searchInput.text = "> install wallpaper ~/Downloads/";
+                                searchInput.cursorPosition = searchInput.text.length;
+                            } else if (item.execCmd.startsWith("__CMD_INSTALL_FILE__:")) {
+                                let targetPath = item.execCmd.substring("__CMD_INSTALL_FILE__:".length);
+                                searchInput.text = "> install wallpaper " + targetPath;
+                                searchInput.cursorPosition = searchInput.text.length;
+                            } else if (item.isCommand) {
+                                searchInput.text = "> " + item.name;
+                                searchInput.cursorPosition = searchInput.text.length;
+                            }
                         }
                         event.accepted = true;
                     }
@@ -769,7 +717,6 @@ RowLayout {
                             return;
                         }
 
-                        // Fallback if the list is empty but the user typed a direct command
                         let raw = searchInput.text.trim();
                         if (raw.startsWith(">")) {
                             let cmdBody = raw.substring(1).trim();
@@ -777,6 +724,8 @@ RowLayout {
 
                             if (cmdLower === "wallpaper" || cmdLower === "wallpapers") {
                                 GlobalState.isWallpaperMode = true;
+                            } else if (cmdLower === "keybinds" || cmdLower === "keybind") {
+                                GlobalState.isKeybindsMode = true;
                             } else if (cmdLower.startsWith("install wallpaper ")) {
                                 let explicitPath = cmdBody.substring("install wallpaper ".length).trim();
                                 if (explicitPath !== "" && !explicitPath.endsWith("/")) {
@@ -795,7 +744,7 @@ RowLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
-            spacing: 6
+            spacing: 8
             model: GlobalState.filteredAppsModel
             currentIndex: 0
             highlightFollowsCurrentItem: false
@@ -803,12 +752,12 @@ RowLayout {
             delegate: Rectangle {
                 id: rowRect
                 width: ListView.view ? ListView.view.width : 0
-                height: 50
+                height: model.isCommand ? 68 : 50
                 radius: 10
 
                 readonly property bool isSelected: ListView.isCurrentItem
 
-                color: isSelected ? Theme.bgHover : "transparent"
+                color: model.isCommand ? (isSelected ? Theme.bgHover : Theme.bgBase) : (isSelected ? Theme.bgHover : "transparent")
                 border.width: isSelected ? 1 : 0
                 border.color: isSelected ? Theme.accent : "transparent"
 
@@ -818,10 +767,12 @@ RowLayout {
                     }
                 }
 
+                // --- A. NORMAL APPLICATION ROW ---
                 RowLayout {
                     anchors.fill: parent
                     anchors.margins: 12
                     spacing: 15
+                    visible: !model.isCommand
 
                     Text {
                         text: model.icon
@@ -837,6 +788,58 @@ RowLayout {
                         font.bold: rowRect.isSelected
                         elide: Text.ElideMiddle
                         Layout.fillWidth: true
+                    }
+                }
+
+                // --- B. COMMAND CARD ROW (Pill Title + Description Below) ---
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: 12
+                    anchors.rightMargin: 12
+                    anchors.topMargin: 8
+                    anchors.bottomMargin: 8
+                    spacing: 5
+                    visible: model.isCommand
+
+                    // Command Name Pill (Strictly no '>' sign inside!)
+                    Rectangle {
+                        id: cmdNamePill
+                        Layout.preferredWidth: Math.min(cmdNameText.implicitWidth + 22, rowRect.width - 28)
+                        Layout.preferredHeight: 24
+                        radius: 12
+                        color: rowRect.isSelected ? Theme.accent : Theme.bgDark
+                        border.width: 1
+                        border.color: rowRect.isSelected ? Theme.accent : Theme.border
+
+                        Behavior on color {
+                            ColorAnimation {
+                                duration: 120
+                            }
+                        }
+
+                        Text {
+                            id: cmdNameText
+                            anchors.centerIn: parent
+                            width: parent.width - 16
+                            horizontalAlignment: Text.AlignHCenter
+                            text: model.name
+                            color: rowRect.isSelected ? Theme.bgDark : Theme.textMain
+                            font.family: Theme.fontName
+                            font.pixelSize: 12
+                            font.bold: true
+                            elide: Text.ElideRight
+                        }
+                    }
+
+                    // Command Description Below
+                    Text {
+                        Layout.fillWidth: true
+                        Layout.leftMargin: 4
+                        text: model.description || ""
+                        color: rowRect.isSelected ? Theme.textMain : Theme.textMuted
+                        font.family: Theme.fontName
+                        font.pixelSize: 11
+                        elide: Text.ElideRight
                     }
                 }
 
