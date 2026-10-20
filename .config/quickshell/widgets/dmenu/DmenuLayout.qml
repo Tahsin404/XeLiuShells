@@ -273,12 +273,10 @@ RowLayout {
 
     onVisibleChanged: {
         if (visible && !GlobalState.isWallpaperMode) {
-            root.keyboardNavActive = false;
-            root.lastMouseX = -1;
-            root.lastMouseY = -1;
             searchInput.text = "";
             updateSearch("");
             searchInput.forceActiveFocus();
+            loadGifsProc.running = true;
         }
     }
 
@@ -292,10 +290,34 @@ RowLayout {
         border.color: Theme.border
         border.width: 2
 
-        property var gifList: ["../../assets/gifs/art1.gif", "../../assets/gifs/art2.gif", "../../assets/gifs/art3.gif", "../../assets/gifs/art4.gif", "../../assets/gifs/art5.gif"]
+        property var gifList: ["../../assets/gifs/art.gif", "../../assets/gifs/art2.gif", "../../assets/gifs/art3.gif", "../../assets/gifs/art4.gif", "../../assets/gifs/art5.gif"]
         property int currentGifIndex: 4 // Starts on art5.gif by default
+        property int maxVisibleDots: 5
+        property int dotWindowStart: 0
         property bool isSliding: false
         property bool isHovered: gifHoverHandler.hovered
+
+        // Keeps the 5-dot sliding window synced with currentGifIndex
+        function updateDotWindow() {
+            let total = gifList.length;
+            if (total <= maxVisibleDots) {
+                dotWindowStart = 0;
+                return;
+            }
+            if (currentGifIndex < dotWindowStart) {
+                dotWindowStart = currentGifIndex;
+            } else if (currentGifIndex >= dotWindowStart + maxVisibleDots) {
+                dotWindowStart = currentGifIndex - maxVisibleDots + 1;
+            }
+            // Clamp in case files were deleted from the folder
+            let maxStart = Math.max(0, total - maxVisibleDots);
+            if (dotWindowStart > maxStart) {
+                dotWindowStart = maxStart;
+            }
+        }
+
+        onCurrentGifIndexChanged: updateDotWindow()
+        onGifListChanged: updateDotWindow()
 
         // Dynamically scans ~/.config/quickshell/assets/gifs for all .gif files & restores saved index
         Process {
@@ -320,6 +342,7 @@ RowLayout {
                     if (found.length > 0) {
                         gifFrame.gifList = found;
                         gifFrame.currentGifIndex = ((savedIdx % found.length) + found.length) % found.length;
+                        gifFrame.updateDotWindow();
                     }
                 }
             }
@@ -543,13 +566,18 @@ RowLayout {
                 }
             }
 
-            // BOTTOM PAGINATION DOTS
+            // BOTTOM PAGINATION DOTS (Physical Sliding Track + Shrinking/Growing Edge Dots)
             Rectangle {
                 id: dotsBackdrop
                 anchors.bottom: parent.bottom
                 anchors.bottomMargin: 10
                 anchors.horizontalCenter: parent.horizontalCenter
-                width: dotsRow.implicitWidth + 16
+
+                readonly property int visibleCount: Math.min(gifFrame.maxVisibleDots, gifFrame.gifList.length)
+                // Exact width for N visible dots: (N - 1) * (6px dot + 6px spacing) + 16px active pill
+                readonly property int viewportWidth: visibleCount > 0 ? ((visibleCount - 1) * 12 + 16) : 0
+
+                width: viewportWidth + 16
                 height: 16
                 radius: 8
                 color: Qt.rgba(0, 0, 0, 0.45)
@@ -564,40 +592,76 @@ RowLayout {
                     }
                 }
 
-                Row {
-                    id: dotsRow
+                Item {
+                    id: dotsViewport
                     anchors.centerIn: parent
-                    spacing: 6
+                    width: dotsBackdrop.viewportWidth
+                    height: 10
+                    clip: true
 
-                    Repeater {
-                        model: gifFrame.gifList.length
+                    Row {
+                        id: dotsTrack
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 6
 
-                        Rectangle {
-                            required property int index
-                            readonly property bool isCurrent: index === gifFrame.currentGifIndex
+                        // Physically shifts the entire track left/right by 12px (6px dot + 6px spacing) per step!
+                        x: -gifFrame.dotWindowStart * 12
 
-                            width: isCurrent ? 16 : 6
-                            height: 6
-                            radius: 3
-                            color: isCurrent ? "#ffffff" : Qt.rgba(1, 1, 1, 0.4)
-
-                            Behavior on width {
-                                NumberAnimation {
-                                    duration: 250
-                                    easing.type: Easing.OutBack
-                                }
+                        Behavior on x {
+                            NumberAnimation {
+                                duration: 260
+                                easing.type: Easing.OutCubic
                             }
-                            Behavior on color {
-                                ColorAnimation {
-                                    duration: 200
-                                }
-                            }
+                        }
 
-                            MouseArea {
-                                anchors.fill: parent
-                                anchors.margins: -3
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: gifFrame.slideToGifIndex(index)
+                        Repeater {
+                            model: gifFrame.gifList.length
+
+                            Rectangle {
+                                required property int index
+                                readonly property bool isCurrent: index === gifFrame.currentGifIndex
+                                readonly property bool inWindow: index >= gifFrame.dotWindowStart && index < (gifFrame.dotWindowStart + gifFrame.maxVisibleDots)
+
+                                width: isCurrent ? 16 : 6
+                                height: 6
+                                radius: 3
+                                color: isCurrent ? "#ffffff" : Qt.rgba(1, 1, 1, 0.4)
+
+                                // Dots exiting/entering the 5-dot window smoothly shrink/grow and fade out/in!
+                                opacity: inWindow ? 1.0 : 0.0
+                                scale: inWindow ? 1.0 : 0.0
+
+                                Behavior on width {
+                                    NumberAnimation {
+                                        duration: 260
+                                        easing.type: Easing.OutBack
+                                    }
+                                }
+                                Behavior on color {
+                                    ColorAnimation {
+                                        duration: 200
+                                    }
+                                }
+                                Behavior on opacity {
+                                    NumberAnimation {
+                                        duration: 220
+                                        easing.type: Easing.OutCubic
+                                    }
+                                }
+                                Behavior on scale {
+                                    NumberAnimation {
+                                        duration: 220
+                                        easing.type: Easing.OutBack
+                                    }
+                                }
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    anchors.margins: -3
+                                    enabled: inWindow
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: gifFrame.slideToGifIndex(index)
+                                }
                             }
                         }
                     }
