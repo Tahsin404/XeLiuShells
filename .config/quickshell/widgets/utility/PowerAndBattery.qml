@@ -24,25 +24,70 @@ Column {
 
             Repeater {
                 model: [
-                    { icon: "", name: "Lock Screen", hColor: Theme.accent, cmd: "hyprlock" },
-                    { icon: "", name: "Sleep", hColor: Theme.accent, cmd: "systemctl suspend" },
-                    { icon: "", name: "Log Out", hColor: Theme.accent, cmd: "hyprctl dispatch exit" },
-                    { icon: "", name: "Reboot", hColor: Theme.accent, cmd: "systemctl reboot" },
-                    { icon: "", name: "Shut Down", hColor: Theme.error, cmd: "systemctl poweroff" },
-                    { icon: "", name: "Restart Shell", hColor: Theme.accent, cmd: "bash -c '(sleep 0.5 && quickshell) & disown; killall quickshell'" },
-                    { icon: "", name: "Hibernate", hColor: Theme.accent, cmd: "systemctl hibernate" },
-                    { icon: "", name: "Screen Off", hColor: Theme.accent, cmd: "hyprctl dispatch dpms off" },
-                    { icon: "", name: "Cancel", hColor: Theme.accent, cmd: "cancel" }
+                    {
+                        icon: "",
+                        name: "Lock Screen",
+                        hColor: Theme.accent,
+                        cmd: "hyprlock"
+                    },
+                    {
+                        icon: "",
+                        name: "Sleep",
+                        hColor: Theme.accent,
+                        cmd: "systemctl suspend"
+                    },
+                    {
+                        icon: "",
+                        name: "Log Out",
+                        hColor: Theme.accent,
+                        cmd: "hyprctl dispatch exit"
+                    },
+                    {
+                        icon: "",
+                        name: "Reboot",
+                        hColor: Theme.accent,
+                        cmd: "systemctl reboot"
+                    },
+                    {
+                        icon: "",
+                        name: "Shut Down",
+                        hColor: Theme.error,
+                        cmd: "systemctl poweroff"
+                    },
+                    {
+                        icon: "",
+                        name: "Restart Shell",
+                        hColor: Theme.accent,
+                        cmd: "hyprctl dispatch exec \"bash -c 'killall -9 quickshell; sleep 0.3; quickshell &'\""
+                    },
+                    {
+                        icon: "",
+                        name: "Hibernate",
+                        hColor: Theme.accent,
+                        cmd: "systemctl hibernate"
+                    },
+                    {
+                        icon: "",
+                        name: "Screen Off",
+                        hColor: Theme.accent,
+                        cmd: "hyprctl dispatch dpms off"
+                    },
+                    {
+                        icon: "",
+                        name: "Cancel",
+                        hColor: Theme.accent,
+                        cmd: "cancel"
+                    }
                 ]
-                
-              delegate: Rectangle {
+
+                delegate: Rectangle {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     radius: 12
-                    
+
                     // PROPER MODULAR FIX: Uses global theme variables for the button backgrounds
                     color: pMouse.pressed ? modelData.hColor : (pMouse.containsMouse ? Theme.bgHover : Theme.bgButton)
-                    
+
                     Text {
                         anchors.centerIn: parent
                         text: modelData.icon
@@ -59,7 +104,7 @@ Column {
                         y: parent.height + 8
 
                         contentItem: Text {
-                            text: modelData.name 
+                            text: modelData.name
                             color: Theme.textMain
                             font.family: Theme.fontName
                             font.pixelSize: 13
@@ -77,7 +122,7 @@ Column {
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
                         hoverEnabled: true
-                        
+
                         onClicked: {
                             if (modelData.cmd !== "cancel") {
                                 Backend.run(modelData.cmd);
