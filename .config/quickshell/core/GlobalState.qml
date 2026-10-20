@@ -50,6 +50,29 @@ Item {
     property var filteredAppsModel: null
     property var historyCounts: ({})
     property bool isWallpaperMode: false
+    property bool isKeybindsMode: false
+    property var keybindsMap: ({
+            "launcher": {
+                "mods": "SUPER",
+                "key": "SUPER_L",
+                "display": "WIN"
+            },
+            "media": {
+                "mods": "",
+                "key": "F6",
+                "display": "F6"
+            },
+            "clock": {
+                "mods": "",
+                "key": "F7",
+                "display": "F7"
+            },
+            "utility": {
+                "mods": "",
+                "key": "F8",
+                "display": "F8"
+            }
+        })
     property var wallpapersModel: null
 
     // --- HARDWARE & MEDIA STATES ---

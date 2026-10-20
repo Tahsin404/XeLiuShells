@@ -446,4 +446,36 @@ Item {
     function syncVolume() {
         fetchVolumeProcess.running = true;
     }
+    // --- KEYBINDS ENGINE ---
+    Process {
+        id: keybindsProc
+        stdout: StdioCollector {
+            onStreamFinished: {
+                let raw = text.trim();
+                if (raw.length > 0) {
+                    try {
+                        GlobalState.keybindsMap = JSON.parse(raw);
+                    } catch (e) {
+                        console.log("Keybinds JSON parse error:", e);
+                    }
+                }
+            }
+        }
+    }
+
+    function loadKeybinds() {
+        keybindsProc.command = ["bash", "-c", "$HOME/.config/quickshell/scripts/manage_keybinds.sh --get"];
+        keybindsProc.running = true;
+    }
+
+    function setKeybind(target, mods, key, displayStr) {
+        let safeCmd = "$HOME/.config/quickshell/scripts/manage_keybinds.sh --set " + "'" + target + "' " + "'" + mods + "' " + "'" + key + "' " + "'" + displayStr + "'";
+        keybindsProc.command = ["bash", "-c", safeCmd];
+        keybindsProc.running = true;
+    }
+
+    function resetKeybinds() {
+        keybindsProc.command = ["bash", "-c", "$HOME/.config/quickshell/scripts/manage_keybinds.sh --reset"];
+        keybindsProc.running = true;
+    }
 }
