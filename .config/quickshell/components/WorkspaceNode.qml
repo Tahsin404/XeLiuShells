@@ -23,6 +23,7 @@ Item {
     onIsMenuOpenChanged: {
         if (!isMenuOpen) {
             GlobalState.isWallpaperMode = false;
+            GlobalState.isKeybindsMode = false;
         }
     }
 
@@ -189,7 +190,7 @@ Item {
         // --- STAGE 1: THE MODULAR TWO-PANE APP LAUNCHER ---
         Item {
             anchors.fill: parent
-            opacity: (nodeRoot.isMenuOpen && !GlobalState.isWallpaperMode) ? 1 : 0
+            opacity: (nodeRoot.isMenuOpen && !GlobalState.isWallpaperMode && !GlobalState.isKeybindsMode) ? 1 : 0
             visible: opacity > 0
             clip: true
 
@@ -200,7 +201,7 @@ Item {
             Behavior on opacity {
                 SequentialAnimation {
                     PauseAnimation {
-                        duration: (nodeRoot.isMenuOpen && !GlobalState.isWallpaperMode) ? 150 : 0
+                        duration: (nodeRoot.isMenuOpen && !GlobalState.isWallpaperMode && !GlobalState.isKeybindsMode) ? 150 : 0
                     }
                     NumberAnimation {
                         duration: 200
@@ -229,6 +230,28 @@ Item {
                     }
                     NumberAnimation {
                         duration: 220
+                    }
+                }
+            }
+        }
+        // --- STAGE 3: INTERACTIVE KEYBINDS CONFIGURATOR ---
+        Item {
+            anchors.fill: parent
+            opacity: (nodeRoot.isMenuOpen && GlobalState.isKeybindsMode) ? 1 : 0
+            visible: opacity > 0
+            clip: true
+
+            KeybindsConfigurator {
+                onRequestClose: nodeRoot.requestClose()
+            }
+
+            Behavior on opacity {
+                SequentialAnimation {
+                    PauseAnimation {
+                        duration: (nodeRoot.isMenuOpen && GlobalState.isKeybindsMode) ? 120 : 0
+                    }
+                    NumberAnimation {
+                        duration: 200
                     }
                 }
             }
