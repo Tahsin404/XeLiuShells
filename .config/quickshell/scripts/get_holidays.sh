@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ~/.config/quickshell/scripts/get_bd_holidays.sh
+# ~/.config/quickshell/scripts/get_holidays.sh
 # Universal Location-Aware Holiday Engine for Quickshell (Rolling ±10 Year Window)
 
 YEAR="${1:-$(date +%Y)}"
@@ -11,80 +11,79 @@ import re
 import time
 import math
 import json
-import locale
 import urllib.request
 from datetime import date, datetime, timedelta
 
 target_year = int(sys.argv[1]) if len(sys.argv) > 1 else date.today().year
 current_year = date.today().year
-
-# Rolling ±10 year window relative to whatever the current year is
 min_window_year = current_year - 10
 max_window_year = current_year + 10
 
-cache_dir = os.path.expanduser("~/.cache")
+cache_dir = os.path.expanduser("~/.cache/quickshell")
 os.makedirs(cache_dir, exist_ok=True)
-country_cache = os.path.join(cache_dir, "quickshell_country.txt")
+config_path = os.path.expanduser("~/.config/quickshell/config.json")
+
+# Load optional user config overrides
+user_cfg = {}
+if os.path.exists(config_path):
+    try:
+        with open(config_path, "r", encoding="utf-8") as cf:
+            user_cfg = json.load(cf)
+    except Exception:
+        pass
 
 # -------------------------------------------------------------------------
-# 1. Dynamic User Country Detection (IP -> Timezone -> Locale)
+# 1. Privacy-First Country Detection (Config -> System Timezone -> Locale)
 # -------------------------------------------------------------------------
 def detect_country_code():
-    # Use cached country code if refreshed within the last 7 days
-    if os.path.exists(country_cache):
-        age_days = (time.time() - os.path.getmtime(country_cache)) / 86400.0
-        if age_days < 7:
-            with open(country_cache, "r", encoding="utf-8") as f:
-                code = f.read().strip().upper()
-                if len(code) == 2 and code.isalpha():
-                    return code
-
-    # Tier 1: Live IP Geolocation
-    for url in ["https://ipinfo.io/country", "https://ipapi.co/country/"]:
-        try:
-            req = urllib.request.Request(url, headers={"User-Agent": "curl/8.0"})
-            with urllib.request.urlopen(req, timeout=2.0) as resp:
-                code = resp.read().decode("utf-8").strip().upper()
-                if len(code) == 2 and code.isalpha():
-                    with open(country_cache, "w", encoding="utf-8") as f:
-                        f.write(code)
-                    return code
-        except Exception:
-            pass
+    # Tier 1: Explicit user preference in ~/.config/quickshell/config.json
+    cfg_country = (
+        user_cfg.get("localization", {}).get("countryCode")
+        or user_cfg.get("countryCode")
+        or "AUTO"
+    ).strip().upper()
+    if len(cfg_country) == 2 and cfg_country.isalpha():
+        return cfg_country
 
     # Tier 2: Offline Linux System Timezone (/etc/localtime -> /usr/share/zoneinfo/zone1970.tab)
     try:
         real_tz = os.path.realpath("/etc/localtime")
         if "zoneinfo/" in real_tz:
             tz_name = real_tz.split("zoneinfo/", 1)[1]
-            zone_tab = "/usr/share/zoneinfo/zone1970.tab"
-            if not os.path.exists(zone_tab):
-                zone_tab = "/usr/share/zoneinfo/zone.tab"
-            if os.path.exists(zone_tab):
-                with open(zone_tab, "r", encoding="utf-8", errors="ignore") as zf:
-                    for line in zf:
-                        if line.startswith("#") or not line.strip():
-                            continue
-                        parts = line.strip().split("\t")
-                        if len(parts) >= 3 and parts[2] == tz_name:
-                            code = parts[0].split(",")[0].strip().upper()
-                            if len(code) == 2:
-                                with open(country_cache, "w", encoding="utf-8") as f:
-                                    f.write(code)
-                                return code
+            for zone_tab in ["/usr/share/zoneinfo/zone1970.tab", "/usr/share/zoneinfo/zone.tab"]:
+                if os.path.exists(zone_tab):
+                    with open(zone_tab, "r", encoding="utf-8", errors="ignore") as zf:
+                        for line in zf:
+                            if line.startswith("#") or not line.strip():
+                                continue
+                            parts = line.strip().split("\t")
+                            if len(parts) >= 3 and parts[2] == tz_name:
+                                code = parts[0].split(",")[0].strip().upper()
+                                if len(code) == 2 and code.isalpha():
+                                    return code
     except Exception:
         pass
 
-    # Tier 3: System Locale ($LANG / $LC_TIME)
+    # Tier 3: Offline System Locale ($LC_TIME / $LANG)
     for env_var in ["LC_TIME", "LC_ALL", "LANG"]:
         val = os.environ.get(env_var, "")
         m = re.search(r"_([A-Z]{2})", val)
         if m:
             return m.group(1)
 
-    return "US"
+    return "BD"
 
 country = detect_country_code()
+
+# Fast Per-Year Cache Check (7-day TTL so scrolling between years is instant!)
+year_cache_file = os.path.join(cache_dir, f"holidays_{country}_{target_year}.json")
+if os.path.exists(year_cache_file):
+    age_days = (time.time() - os.path.getmtime(year_cache_file)) / 86400.0
+    if age_days < 7 and os.path.getsize(year_cache_file) > 50:
+        with open(year_cache_file, "r", encoding="utf-8") as yf:
+            print(yf.read().strip())
+        sys.exit(0)
+
 holidays = {}
 
 # -------------------------------------------------------------------------
@@ -131,7 +130,6 @@ def hijri_to_gregorian(hy, hm, hd, moon_offset=0):
         return None
 
 def add_regional_astronomical_holidays(y, cc):
-    # South Asia / Islamic / Lunar countries
     islamic_countries = {"BD", "PK", "IN", "MY", "ID", "SA", "AE", "EG", "TR", "MA", "DZ", "TN", "JO", "KW", "QA", "OM", "BH"}
     south_asia_offset = 1 if cc in {"BD", "IN", "PK"} else 0
 
@@ -183,16 +181,13 @@ def add_regional_astronomical_holidays(y, cc):
                         holidays[cur.isoformat()] = "Eid-ul-Adha" if offset == 0 else "Eid-ul-Adha Holiday"
 
     if cc in {"BD", "IN", "NP", "LK"}:
-        # Buddha Purnima
         bp = get_moon_phase_after(datetime(y, 4, 28), phase_offset=0.5)
         holidays[bp.isoformat()] = "Buddha Purnima"
 
-        # Janmashtami
         shravana_nm = get_moon_phase_after(datetime(y, 7, 25), phase_offset=0.0)
         jm = shravana_nm + timedelta(days=22)
         holidays[jm.isoformat()] = "Shubho Janmashtami"
 
-        # Durga Puja / Dashain / Dussehra (Saptami to Dashami)
         mahalaya_nm = get_moon_phase_after(datetime(y, 9, 16), phase_offset=0.0)
         puja_days = [
             (7, "Durga Puja (Maha Saptami)"),
@@ -219,42 +214,30 @@ def add_regional_astronomical_holidays(y, cc):
         }
         holidays.update(bd_fixed)
 
-# 1. Run dynamic mathematical generator for the requested year & detected country
 add_regional_astronomical_holidays(target_year, country)
 
 # -------------------------------------------------------------------------
-# 3. Live Nager.Date Public Holidays API (Supports 100+ Countries & Any Year)
+# 3. Live Nager.Date Public Holidays API
 # -------------------------------------------------------------------------
-nager_cache = os.path.join(cache_dir, f"quickshell_nager_{country}_{target_year}.json")
 try:
-    if os.path.exists(nager_cache) and (time.time() - os.path.getmtime(nager_cache)) < 86400 * 7:
-        with open(nager_cache, "r", encoding="utf-8") as nf:
-            nager_data = json.load(nf)
-    else:
-        req = urllib.request.Request(
-            f"https://date.nager.at/api/v3/PublicHolidays/{target_year}/{country}",
-            headers={"User-Agent": "Quickshell-Calendar/2.0"}
-        )
-        with urllib.request.urlopen(req, timeout=2.5) as resp:
-            if resp.status == 200:
-                nager_data = json.loads(resp.read().decode("utf-8"))
-                with open(nager_cache, "w", encoding="utf-8") as nf:
-                    json.dump(nager_data, nf)
-            else:
-                nager_data = []
-
-    for item in nager_data:
-        d = item.get("date")
-        name = item.get("name") or item.get("localName")
-        if d and name:
-            holidays[d] = name
+    req = urllib.request.Request(
+        f"https://date.nager.at/api/v3/PublicHolidays/{target_year}/{country}",
+        headers={"User-Agent": "Quickshell-Calendar/2.0"}
+    )
+    with urllib.request.urlopen(req, timeout=2.5) as resp:
+        if resp.status == 200:
+            nager_data = json.loads(resp.read().decode("utf-8"))
+            for item in nager_data:
+                d = item.get("date")
+                name = item.get("name") or item.get("localName")
+                if d and name:
+                    holidays[d] = name
 except Exception:
     pass
 
 # -------------------------------------------------------------------------
-# 4. Live Google Calendar Regional Holiday Feed (.ics) for Detected Country
+# 4. Live Google Calendar Regional Holiday Feed (.ics)
 # -------------------------------------------------------------------------
-# Map ISO country code to Google Calendar's regional holiday feed identifier
 GOOGLE_FEED_MAP = {
     "BD": "bd", "US": "usa", "GB": "uk", "CA": "canadian", "AU": "australian",
     "IN": "indian", "PK": "pk", "DE": "german", "FR": "french", "JP": "japanese",
@@ -266,7 +249,7 @@ GOOGLE_FEED_MAP = {
 }
 
 g_slug = GOOGLE_FEED_MAP.get(country, country.lower())
-ics_cache = os.path.join(cache_dir, f"quickshell_holidays_{country}.ics")
+ics_cache = os.path.join(cache_dir, f"google_ics_{country}.ics")
 
 def fetch_and_parse_google_ics(slug):
     urls = [
@@ -345,11 +328,16 @@ live_ics_events = fetch_and_parse_google_ics(g_slug)
 for d_str, title in live_ics_events.items():
     holidays[d_str] = title
 
-print(json.dumps({
+output_json = json.dumps({
     "country": country,
     "year": target_year,
     "window": [min_window_year, max_window_year],
     "dates": sorted(list(holidays.keys())),
     "names": holidays
-}))
+})
+
+with open(year_cache_file, "w", encoding="utf-8") as yf:
+    yf.write(output_json)
+
+print(output_json)
 PYEOF
