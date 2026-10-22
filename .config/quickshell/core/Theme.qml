@@ -138,10 +138,30 @@ Item {
     readonly property int radiusPill: 20
     readonly property int radiusBlock: 12
 
-    // --- GLOBAL FONT ---
+    // --- GLOBAL FONTS (Bundled File Path vs. System Font Family + Dedicated Icon Font) ---
+    FontLoader {
+        id: iconFontLoader
+        source: "../assets/fonts/" + (Config.ui.iconFontFile || "BigBlueTermPlusNerdFont-Regular.ttf")
+    }
+
     FontLoader {
         id: mainFont
-        source: "../assets/fonts/BigBlueTermPlusNerdFont-Regular.ttf"
+        source: "../assets/fonts/" + (Config.ui.fontFile || "BigBlueTermPlusNerdFont-Regular.ttf")
     }
-    readonly property string fontName: mainFont.name
+
+    // Always points to a valid Nerd Font for icons
+    readonly property string iconFontName: iconFontLoader.status === FontLoader.Ready ? iconFontLoader.name : "BigBlueTermPlus Nerd Font"
+
+    // Switches between a system font family name and a bundled Nerd Font file
+    readonly property string fontName: {
+        if (Config.ui.useSystemFont && Config.ui.fontFamily.trim() !== "") {
+            return Config.ui.fontFamily.trim();
+        }
+        if (mainFont.status === FontLoader.Ready && mainFont.name !== "") {
+            return mainFont.name;
+        }
+        return iconFontName;
+    }
+
+    readonly property int iconSize: Config.ui.iconSize > 0 ? Config.ui.iconSize : 18
 }

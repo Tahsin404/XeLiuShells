@@ -61,6 +61,8 @@ Scope {
     IpcHandler {
         target: "utility"
         function toggle(): void {
+            if (GlobalState.isRecordingKeybind)
+                return;
             GlobalState.utilityExpanded = !GlobalState.utilityExpanded;
         }
     }

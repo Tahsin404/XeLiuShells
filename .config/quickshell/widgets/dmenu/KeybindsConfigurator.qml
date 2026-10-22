@@ -1,4 +1,4 @@
-// ~/.config/quickshell/widgets/dmenu/KeybindsConfigurator.qml
+// ~/dotfiles/quickshell/.config/quickshell/widgets/dmenu/KeybindsConfigurator.qml
 import QtQuick
 import QtQuick.Layouts
 import "../../core"
@@ -11,6 +11,10 @@ Item {
 
     property string recordingTarget: ""
     property bool soloSuperPending: false
+
+    onRecordingTargetChanged: {
+        Backend.setKeybindRecording(recordingTarget !== "");
+    }
 
     readonly property var actionsList: [
         {
@@ -38,8 +42,7 @@ Item {
             id: "utility",
             name: "Utility Pill",
             desc: "Toggle quick settings, notifications & power menu",
-            icon: "Sliders",
-            iconGlyph: "",
+            icon: "",
             defaultDisp: "F8"
         }
     ]
@@ -50,6 +53,11 @@ Item {
             soloSuperPending = false;
             Backend.loadKeybinds();
             keyCatcher.forceActiveFocus();
+        } else {
+            soloSuperPending = false;
+            if (recordingTarget !== "") {
+                recordingTarget = "";
+            }
         }
     }
 
@@ -188,8 +196,9 @@ Item {
             dispList.push(hyprKey.toUpperCase());
             let dispStr = dispList.join(" + ");
 
-            Backend.setKeybind(root.recordingTarget, modsStr, hyprKey, dispStr);
+            let targetId = root.recordingTarget;
             root.recordingTarget = "";
+            Backend.setKeybind(targetId, modsStr, hyprKey, dispStr);
             event.accepted = true;
         }
 
@@ -197,8 +206,9 @@ Item {
             // If user tapped and released the Windows key by itself while recording
             if (root.recordingTarget !== "" && root.soloSuperPending && (event.key === Qt.Key_Super_L || event.key === Qt.Key_Super_R || event.key === Qt.Key_Meta)) {
                 root.soloSuperPending = false;
-                Backend.setKeybind(root.recordingTarget, "SUPER", "SUPER_L", "WIN");
+                let targetId = root.recordingTarget;
                 root.recordingTarget = "";
+                Backend.setKeybind(targetId, "SUPER", "SUPER_L", "WIN");
                 event.accepted = true;
             }
         }
@@ -207,7 +217,7 @@ Item {
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: 20
-        spacing: 14
+        spacing: 12
 
         // --- HEADER BAR ---
         RowLayout {
@@ -227,7 +237,7 @@ Item {
                     anchors.centerIn: parent
                     text: ""
                     color: Theme.textMain
-                    font.family: Theme.fontName
+                    font.family: Theme.iconFontName
                     font.pixelSize: 14
                 }
 
@@ -285,7 +295,7 @@ Item {
                     Text {
                         text: ""
                         color: resetMouse.pressed ? Theme.bgDark : Theme.accent
-                        font.family: Theme.fontName
+                        font.family: Theme.iconFontName
                         font.pixelSize: 13
                     }
                     Text {
@@ -311,6 +321,29 @@ Item {
             }
         }
 
+        // --- NON-DESTRUCTIVE WARNING BANNER (Missing source line or keybind conflict) ---
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 32
+            radius: 8
+            visible: !GlobalState.keybindsSourceConfigured || (GlobalState.keybindConflicts && GlobalState.keybindConflicts.length > 0)
+            color: Theme.bgDark
+            border.width: 1
+            border.color: Theme.error
+
+            Text {
+                anchors.fill: parent
+                anchors.leftMargin: 12
+                anchors.rightMargin: 12
+                verticalAlignment: Text.AlignVCenter
+                elide: Text.ElideRight
+                color: Theme.error
+                font.family: Theme.fontName
+                font.pixelSize: 11
+                text: !GlobalState.keybindsSourceConfigured ? "Add to hyprland.conf: source = ~/.local/state/xeliushells/hypr/quickshell_binds.conf" : ("Conflict in user config: " + GlobalState.keybindConflicts[0])
+            }
+        }
+
         // --- 4 KEYBIND CARDS ---
         ColumnLayout {
             Layout.fillWidth: true
@@ -325,9 +358,9 @@ Item {
                     required property var modelData
                     readonly property bool isRecording: root.recordingTarget === modelData.id
                     readonly property string currentBadge: {
-                        let map = GlobalState.keybindsMap;
-                        if (map && map[modelData.id] && map[modelData.id].display)
-                            return map[modelData.id].display;
+                        let entry = Config.keybinds[modelData.id];
+                        if (entry && entry.display)
+                            return entry.display;
                         return modelData.defaultDisp;
                     }
 
@@ -361,14 +394,14 @@ Item {
 
                             Text {
                                 anchors.centerIn: parent
-                                text: bindCard.modelData.iconGlyph ? bindCard.modelData.iconGlyph : bindCard.modelData.icon
+                                text: bindCard.modelData.icon
                                 color: Theme.accent
-                                font.family: Theme.fontName
+                                font.family: Theme.iconFontName
                                 font.pixelSize: 18
                             }
                         }
 
-                        // Action Title Pill + Description (Matches Command Card Aesthetic)
+                        // Action Title Pill + Description
                         ColumnLayout {
                             Layout.fillWidth: true
                             spacing: 4

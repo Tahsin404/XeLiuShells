@@ -24,6 +24,7 @@ Item {
         if (!isMenuOpen) {
             GlobalState.isWallpaperMode = false;
             GlobalState.isKeybindsMode = false;
+            GlobalState.isSyncMode = false;
         }
     }
 
@@ -70,9 +71,11 @@ Item {
 
         readonly property int wallpaperBarWidth: Math.max(900, nodeRoot.screenWidth - 140)
         readonly property int wallpaperBarHeight: 260
+        readonly property int dmenuWidth: GlobalState.isSyncMode ? 780 : 750
+        readonly property int dmenuHeight: GlobalState.isSyncMode ? 560 : 480
 
-        width: nodeRoot.isMenuOpen ? (GlobalState.isWallpaperMode ? wallpaperBarWidth : 750) : nodeRoot.baseWidth
-        height: nodeRoot.isMenuOpen ? (GlobalState.isWallpaperMode ? wallpaperBarHeight : 480) : 16
+        width: nodeRoot.isMenuOpen ? (GlobalState.isWallpaperMode ? wallpaperBarWidth : dmenuWidth) : nodeRoot.baseWidth
+        height: nodeRoot.isMenuOpen ? (GlobalState.isWallpaperMode ? wallpaperBarHeight : dmenuHeight) : 16
         radius: nodeRoot.isMenuOpen ? (GlobalState.isWallpaperMode ? 32 : 20) : 8
         color: nodeRoot.isMenuOpen ? Theme.bgDark : (nodeRoot.isActive ? Theme.textMain : Theme.textMuted)
 
@@ -105,8 +108,8 @@ Item {
                 ParentChange {
                     target: pill
                     parent: nodeRoot.overlayParent
-                    x: nodeRoot.screenWidth / 2 - 375
-                    y: nodeRoot.screenHeight / 2 - 240
+                    x: (nodeRoot.screenWidth - pill.dmenuWidth) / 2
+                    y: (nodeRoot.screenHeight - pill.dmenuHeight) / 2
                 }
             },
             State {
@@ -176,6 +179,20 @@ Item {
                 easing.type: Easing.OutBack
             }
         }
+        Behavior on x {
+            enabled: nodeRoot.isMenuOpen
+            NumberAnimation {
+                duration: 350
+                easing.type: Easing.OutBack
+            }
+        }
+        Behavior on y {
+            enabled: nodeRoot.isMenuOpen
+            NumberAnimation {
+                duration: 350
+                easing.type: Easing.OutBack
+            }
+        }
         Behavior on color {
             ColorAnimation {
                 duration: 250
@@ -190,7 +207,7 @@ Item {
         // --- STAGE 1: THE MODULAR TWO-PANE APP LAUNCHER ---
         Item {
             anchors.fill: parent
-            opacity: (nodeRoot.isMenuOpen && !GlobalState.isWallpaperMode && !GlobalState.isKeybindsMode) ? 1 : 0
+            opacity: (nodeRoot.isMenuOpen && !GlobalState.isWallpaperMode && !GlobalState.isKeybindsMode && !GlobalState.isSyncMode) ? 1 : 0
             visible: opacity > 0
             clip: true
 
@@ -201,7 +218,7 @@ Item {
             Behavior on opacity {
                 SequentialAnimation {
                     PauseAnimation {
-                        duration: (nodeRoot.isMenuOpen && !GlobalState.isWallpaperMode && !GlobalState.isKeybindsMode) ? 150 : 0
+                        duration: (nodeRoot.isMenuOpen && !GlobalState.isWallpaperMode && !GlobalState.isKeybindsMode && !GlobalState.isSyncMode) ? 150 : 0
                     }
                     NumberAnimation {
                         duration: 200
@@ -249,6 +266,28 @@ Item {
                 SequentialAnimation {
                     PauseAnimation {
                         duration: (nodeRoot.isMenuOpen && GlobalState.isKeybindsMode) ? 120 : 0
+                    }
+                    NumberAnimation {
+                        duration: 200
+                    }
+                }
+            }
+        }
+        // --- STAGE 4: INTERACTIVE THEME SYNC CONFIGURATOR ---
+        Item {
+            anchors.fill: parent
+            opacity: (nodeRoot.isMenuOpen && GlobalState.isSyncMode) ? 1 : 0
+            visible: opacity > 0
+            clip: true
+
+            ThemeSyncConfigurator {
+                onRequestClose: nodeRoot.requestClose()
+            }
+
+            Behavior on opacity {
+                SequentialAnimation {
+                    PauseAnimation {
+                        duration: (nodeRoot.isMenuOpen && GlobalState.isSyncMode) ? 120 : 0
                     }
                     NumberAnimation {
                         duration: 200

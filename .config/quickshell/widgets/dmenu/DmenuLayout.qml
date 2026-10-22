@@ -77,14 +77,14 @@ RowLayout {
             let cmdQuery = trimmed.substring(1).trim();
             let cmdLower = cmdQuery.toLowerCase();
 
-            // Live file scanner when typing "> install wallpaper ..."
+            // A. Live file scanner when typing "> install wallpaper ..."
             if (cmdLower.startsWith("install wallpaper")) {
                 let arg = cmdQuery.substring("install wallpaper".length).trim();
                 if (arg !== "") {
                     GlobalState.filteredAppsModel.append({
                         name: "install wallpaper",
                         description: "Install from path: " + arg,
-                        icon: "",
+                        icon: "\uf019",
                         execCmd: "__CMD_INSTALL_FILE__:" + arg,
                         searchTags: "",
                         isCommand: true,
@@ -94,7 +94,7 @@ RowLayout {
                     GlobalState.filteredAppsModel.append({
                         name: "install wallpaper",
                         description: "Scanning ~/Downloads for images... (or type a file path)",
-                        icon: "",
+                        icon: "\uf019",
                         execCmd: "__CMD_INSTALL_PROMPT__",
                         searchTags: "",
                         isCommand: true,
@@ -106,40 +106,117 @@ RowLayout {
                 return;
             }
 
-            // Phase 2 Command Roster (Short, punchy descriptions that never clip)
+            // B. Parameterized UI Font command: "> font <Family>"
+            if (cmdLower.startsWith("font ")) {
+                let fontArg = cmdQuery.substring("font".length).trim();
+                if (fontArg !== "") {
+                    GlobalState.filteredAppsModel.append({
+                        name: "Set UI Font: " + fontArg,
+                        description: "Current UI Font: " + Config.ui.uiFont + " (Press Enter to apply)",
+                        icon: "\uf031",
+                        execCmd: "__CMD_SET_UI_FONT__:" + fontArg,
+                        searchTags: "",
+                        isCommand: true,
+                        score: 1000000
+                    });
+                    resultsList.currentIndex = 0;
+                    return;
+                }
+            }
+
+            // C. Parameterized Icon Font command: "> icon font <Family>"
+            if (cmdLower.startsWith("icon font ")) {
+                let iconFontArg = cmdQuery.substring("icon font".length).trim();
+                if (iconFontArg !== "") {
+                    GlobalState.filteredAppsModel.append({
+                        name: "Set Icon Font: " + iconFontArg,
+                        description: "Current Icon Font: " + Config.ui.iconFont + " (Must be a Nerd Font)",
+                        icon: "\uf031",
+                        execCmd: "__CMD_SET_ICON_FONT__:" + iconFontArg,
+                        searchTags: "",
+                        isCommand: true,
+                        score: 1000000
+                    });
+                    resultsList.currentIndex = 0;
+                    return;
+                }
+            }
+
+            let kittyState = Config.sync.syncKitty ? "ON" : "OFF (Frozen)";
+            let hyprState = Config.sync.syncHyprland ? "ON" : "OFF (Frozen)";
+            let glassState = Config.sync.syncGlassEffects ? "ON" : "OFF";
+            let nvimState = Config.sync.syncNeovim ? "ON" : "OFF (Frozen)";
+            let gtkState = Config.sync.syncGtk ? "ON" : "OFF (Frozen)";
+            let clkFmt = Config.localization.clockFormat === "24h" ? "24h" : "12h";
+
             let systemCommands = [
                 {
                     name: "Wallpaper",
                     description: "Open wallpaper & theme switcher",
-                    icon: "",
+                    icon: "\uf03e",
                     execCmd: "__WALLPAPER_MODE__",
                     matchKey: "wallpaper theme background carousel"
                 },
                 {
                     name: "Keybinds",
                     description: "Edit or reset shell shortcuts",
-                    icon: "",
+                    icon: "\uf11c",
                     execCmd: "__KEYBINDS_MODE__",
                     matchKey: "keybinds shortcuts hotkeys binds f6 f7 f8 super win"
                 },
                 {
                     name: "Install wallpaper",
                     description: "Add new image to wallpapers",
-                    icon: "",
+                    icon: "\uf019",
                     execCmd: "__CMD_INSTALL_PROMPT__",
                     matchKey: "install wallpaper add copy download image"
                 },
                 {
                     name: "Toggle theme",
-                    description: "Switch Dark and Light mode",
-                    icon: "",
+                    description: "Switch between Dark & Light mode",
+                    icon: "\uf042",
                     execCmd: "__CMD_TOGGLE_THEME__",
                     matchKey: "toggle theme dark light mode polarity"
                 },
                 {
+                    name: "Sync theme",
+                    description: "Configure external app & glass theme syncing",
+                    icon: "\uf1fc",
+                    execCmd: "__SYNC_MODE__",
+                    matchKey: "sync theme kitty ranger hyprland glass neovim nvim gtk colors freeze"
+                },
+                {
+                    name: "Clock format [" + clkFmt + "]",
+                    description: "Switch topbar clock between 12h and 24h format",
+                    icon: "\uf017",
+                    execCmd: "__CMD_TOGGLE_CLOCK__",
+                    matchKey: "clock format time 12h 24h am pm"
+                },
+                {
+                    name: "UI Font (" + Config.ui.uiFont + ")",
+                    description: "Type '> font <Name>' to change UI text font",
+                    icon: "\uf031",
+                    execCmd: "__CMD_FONT_PROMPT__",
+                    matchKey: "font ui text family typography"
+                },
+                {
+                    name: "Icon Font (" + Config.ui.iconFont + ")",
+                    description: "Type '> icon font <Name>' to change Nerd Font icons",
+                    icon: "\uf031",
+                    execCmd: "__CMD_ICON_FONT_PROMPT__",
+                    matchKey: "icon font nerd symbols glyphs"
+                },
+                {
+                    name: "Edit config",
+                    description: "Open ~/.config/xeliushells/config.json in editor",
+                    icon: "\uf013",
+                    execCmd: "__CMD_EDIT_CONFIG__",
+                    matchKey: "edit config json settings preferences file"
+                },
+                {
                     name: "Reload wallpapers",
                     description: "Refresh wallpapers & thumbnails",
-                    icon: "",
+                    icon: "\uf021",
                     execCmd: "__CMD_RELOAD_WALLPAPERS__",
                     matchKey: "reload refresh wallpapers thumbnails"
                 }
@@ -195,6 +272,14 @@ RowLayout {
         }
     }
 
+    function refreshCommandListInPlace() {
+        let savedIdx = resultsList.currentIndex;
+        root.updateSearch(searchInput.text);
+        if (savedIdx >= 0 && savedIdx < resultsList.count) {
+            resultsList.currentIndex = savedIdx;
+        }
+    }
+
     function executeEntry(name, execCmd) {
         if (execCmd === "__WALLPAPER_MODE__") {
             GlobalState.isWallpaperMode = true;
@@ -215,6 +300,47 @@ RowLayout {
             Backend.installWallpaper(targetPath);
             return;
         }
+        if (execCmd === "__CMD_FONT_PROMPT__") {
+            searchInput.text = "> font ";
+            searchInput.cursorPosition = searchInput.text.length;
+            searchInput.forceActiveFocus();
+            return;
+        }
+        if (execCmd === "__CMD_ICON_FONT_PROMPT__") {
+            searchInput.text = "> icon font ";
+            searchInput.cursorPosition = searchInput.text.length;
+            searchInput.forceActiveFocus();
+            return;
+        }
+        if (execCmd.startsWith("__CMD_SET_UI_FONT__:")) {
+            let fName = execCmd.substring("__CMD_SET_UI_FONT__:".length);
+            Backend.setUiFont(fName);
+            searchInput.text = "> ";
+            searchInput.cursorPosition = searchInput.text.length;
+            return;
+        }
+        if (execCmd.startsWith("__CMD_SET_ICON_FONT__:")) {
+            let fName = execCmd.substring("__CMD_SET_ICON_FONT__:".length);
+            Backend.setIconFont(fName);
+            searchInput.text = "> ";
+            searchInput.cursorPosition = searchInput.text.length;
+            return;
+        }
+        if (execCmd === "__SYNC_MODE__") {
+            GlobalState.isSyncMode = true;
+            return;
+        }
+        if (execCmd === "__CMD_TOGGLE_CLOCK__") {
+            Config.localization.clockFormat = (Config.localization.clockFormat === "24h") ? "12h" : "24h";
+            Config.save();
+            refreshCommandListInPlace();
+            return;
+        }
+        if (execCmd === "__CMD_EDIT_CONFIG__") {
+            Backend.openConfigInEditor();
+            root.requestClose();
+            return;
+        }
         if (execCmd === "__CMD_TOGGLE_THEME__") {
             Backend.toggleThemePolarity();
             root.requestClose();
@@ -230,8 +356,8 @@ RowLayout {
         root.requestClose();
     }
 
-    onVisibleChanged: {
-        if (visible && !GlobalState.isWallpaperMode && !GlobalState.isKeybindsMode) {
+onVisibleChanged: {
+        if (visible && !GlobalState.isWallpaperMode && !GlobalState.isKeybindsMode && !GlobalState.isSyncMode) {
             root.keyboardNavActive = false;
             root.lastMouseX = -1;
             root.lastMouseY = -1;
@@ -279,10 +405,10 @@ RowLayout {
         onCurrentGifIndexChanged: updateDotWindow()
         onGifListChanged: updateDotWindow()
 
-        Process {
+          Process {
             id: loadGifsProc
             running: true
-            command: ["bash", "-c", "idx=$(cat \"$HOME/.cache/quickshell_gif_index\" 2>/dev/null || echo 4); " + "echo \"IDX:$idx\"; " + "find \"$HOME/.config/quickshell/assets/gifs\" -maxdepth 1 -type f -iname '*.gif' 2>/dev/null | sort -V"]
+            command: ["bash", "-c", "idx=$(cat \"$HOME/.local/state/xeliushells/gif_index\" 2>/dev/null || echo 4); " + "echo \"IDX:$idx\"; " + "find \"$HOME/.config/quickshell/assets/gifs\" -maxdepth 1 -type f -iname '*.gif' 2>/dev/null | sort -V"]
             stdout: StdioCollector {
                 onStreamFinished: {
                     let lines = text.trim().split("\n");
@@ -327,7 +453,7 @@ RowLayout {
             gifSlideAnim.nextIndex = targetIdx;
             gifSlideAnim.start();
 
-            Backend.run("echo " + targetIdx + " > $HOME/.cache/quickshell_gif_index");
+            Backend.run("mkdir -p \"$HOME/.local/state/xeliushells\" && echo " + targetIdx + " > \"$HOME/.local/state/xeliushells/gif_index\"");
         }
 
         SequentialAnimation {
@@ -460,7 +586,7 @@ RowLayout {
                     anchors.horizontalCenterOffset: -1
                     text: ""
                     color: leftArrowMouse.pressed ? Theme.bgDark : Theme.textMain
-                    font.family: Theme.fontName
+                    font.family: Theme.iconFontName
                     font.pixelSize: 14
                     font.bold: true
                 }
@@ -504,7 +630,7 @@ RowLayout {
                     anchors.horizontalCenterOffset: 1
                     text: ""
                     color: rightArrowMouse.pressed ? Theme.bgDark : Theme.textMain
-                    font.family: Theme.fontName
+                    font.family: Theme.iconFontName
                     font.pixelSize: 14
                     font.bold: true
                 }
@@ -638,7 +764,7 @@ RowLayout {
                 Text {
                     text: root.isCommandMode ? "" : ""
                     color: Theme.accent
-                    font.family: Theme.fontName
+                    font.family: Theme.iconFontName
                     font.pixelSize: 18
                 }
 
@@ -726,6 +852,8 @@ RowLayout {
                                 GlobalState.isWallpaperMode = true;
                             } else if (cmdLower === "keybinds" || cmdLower === "keybind") {
                                 GlobalState.isKeybindsMode = true;
+                            } else if (cmdLower === "sync" || cmdLower === "sync theme") {
+                              GlobalState.isSyncMode = true;
                             } else if (cmdLower.startsWith("install wallpaper ")) {
                                 let explicitPath = cmdBody.substring("install wallpaper ".length).trim();
                                 if (explicitPath !== "" && !explicitPath.endsWith("/")) {

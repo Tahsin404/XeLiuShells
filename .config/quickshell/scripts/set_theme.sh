@@ -1,194 +1,370 @@
 #!/usr/bin/env bash
-# ~/.config/quickshell/scripts/set_theme.sh
+# ~/dotfiles/quickshell/.config/quickshell/scripts/set_theme.sh
 
 MODE_ARG="$1"
-CACHE_JSON="$HOME/.cache/quickshell_theme.json"
-USER_CONFIG="$HOME/.config/quickshell/config.json"
 
-# Dedicated Quickshell-owned theme state directory (Caelestia-style)
-THEME_OUT_DIR="$HOME/.cache/quickshell/theme"
-mkdir -p "$THEME_OUT_DIR"
+XDG_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}"
+XDG_STATE="${XDG_STATE_HOME:-$HOME/.local/state}"
 
-KITTY_COLORS="$HOME/.config/kitty/colors-kitty.conf"
-HYPR_COLORS="$HOME/.config/hypr/conf/colors.conf"
+USER_CONFIG="$XDG_CONFIG/xeliushells/config.json"
+THEME_STATE_DIR="$XDG_STATE/xeliushells/theme"
+THEME_JSON="$THEME_STATE_DIR/theme.json"
+LEGACY_CACHE_JSON="$HOME/.cache/quickshell_theme.json"
 
-# Helper: Read boolean toggle from ~/.config/quickshell/config.json (defaults to true)
-get_toggle() {
+CACHE_JSON="$THEME_JSON"
+
+mkdir -p "$THEME_STATE_DIR"
+
+# 1. Migrate existing theme.json from ~/.cache if needed
+if [ ! -f "$THEME_JSON" ] && [ -f "$LEGACY_CACHE_JSON" ]; then
+  cp -f "$LEGACY_CACHE_JSON" "$THEME_JSON"
+fi
+
+# 2. Bootstrap default palette if theme.json doesn't exist yet
+if [ ! -f "$THEME_JSON" ]; then
+  cat <<EOF >"$THEME_JSON"
+{
+  "wallpaper": "$HOME/.config/quickshell/assets/wallpapers/1.png",
+  "isDark": true,
+  "wallIsDark": true,
+  "dark": {
+    "bgBase": "#413D38",
+    "bgDark": "#34302c",
+    "bgHover": "#4f4a44",
+    "bgButton": "#413D38",
+    "accent": "#C5BAA8",
+    "hardwareRam": "#a39a8c",
+    "hardwareGpu": "#797065",
+    "textMain": "#dfdad2",
+    "textMuted": "#9c9893",
+    "border": "#dfdad2",
+    "error": "#e06c75"
+  },
+  "light": {
+    "bgBase": "#d8cebe",
+    "bgDark": "#c7bba8",
+    "bgHover": "#b5a792",
+    "bgButton": "#cfc3b1",
+    "accent": "#6d5e4c",
+    "hardwareRam": "#7d6f5d",
+    "hardwareGpu": "#8f8271",
+    "textMain": "#2b2623",
+    "textMuted": "#635c55",
+    "border": "#6d5e4c",
+    "error": "#c94f58"
+  }
+}
+EOF
+fi
+
+# 3. Bootstrap harmless stub files ONLY if they don't exist yet on disk
+if [ ! -f "$THEME_STATE_DIR/kitty.conf" ]; then
+  echo "# XeLiuShells: Managed Kitty theme stub (initial state)" >"$THEME_STATE_DIR/kitty.conf"
+fi
+
+if [ ! -f "$THEME_STATE_DIR/hypr-colors.conf" ]; then
+  echo "# XeLiuShells: Managed Hyprland theme stub (initial state)" >"$THEME_STATE_DIR/hypr-colors.conf"
+fi
+
+if [ ! -f "$THEME_STATE_DIR/nvim-palette.lua" ]; then
+  cat <<'EOF' >"$THEME_STATE_DIR/nvim-palette.lua"
+-- XeLiuShells: Managed Neovim theme stub (initial state)
+return { enabled = false, apply_highlights = function() end }
+EOF
+fi
+
+# Read boolean toggle from ~/.config/xeliushells/config.json -> .sync.<key>
+get_sync_toggle() {
   local key="$1"
-  local default_val="${2:-true}"
+  local default_val="$2"
   if [ -f "$USER_CONFIG" ] && command -v jq >/dev/null 2>&1; then
     local val
-    val=$(jq -r "if .theming.${key} != null then .theming.${key} elif .${key} != null then .${key} else \"${default_val}\" end" "$USER_CONFIG" 2>/dev/null)
-    echo "$val"
-  else
-    echo "$default_val"
+    val=$(jq -r "if (.sync != null and .sync.${key} != null) then .sync.${key} else \"${default_val}\" end" "$USER_CONFIG" 2>/dev/null)
+    if [ -n "$val" ] && [ "$val" != "null" ]; then
+      echo "$val"
+      return
+    fi
   fi
+  echo "$default_val"
 }
 
-# Helper function: Reads $CACHE_JSON and syncs Kitty, Ranger, Hyprland, GTK, and Neovim
 sync_external_themes() {
-  if [ ! -f "$CACHE_JSON" ] || ! command -v jq >/dev/null 2>&1; then
+  local target_json="${1:-$CACHE_JSON}"
+
+  if [ ! -f "$target_json" ]; then
     return
   fi
 
+  local sync_kitty sync_hypr sync_glass sync_nvim sync_gtk
+  sync_kitty=$(get_sync_toggle "syncKitty" "false")
+  sync_hypr=$(get_sync_toggle "syncHyprland" "false")
+  sync_glass=$(get_sync_toggle "syncGlassEffects" "false")
+  sync_nvim=$(get_sync_toggle "syncNeovim" "false")
+  sync_gtk=$(get_sync_toggle "syncGtk" "false")
+
+  # Only write state files for apps whose sync toggle is currently TRUE.
+  # When a toggle is FALSE, its state file is left untouched (freezing the last active palette).
+  python3 - "$target_json" "$THEME_STATE_DIR" "$sync_kitty" "$sync_hypr" "$sync_glass" "$sync_nvim" <<'PYEOF'
+import json
+import os
+import sys
+
+json_path  = sys.argv[1]
+state_dir  = sys.argv[2]
+sync_kitty = (sys.argv[3] == "true")
+sync_hypr  = (sys.argv[4] == "true")
+sync_glass = (sys.argv[5] == "true")
+sync_nvim  = (sys.argv[6] == "true")
+
+with open(json_path, "r", encoding="utf-8") as f:
+    data = json.load(f)
+
+is_dark = bool(data.get("isDark", True))
+wall_is_dark = bool(data.get("wallIsDark", is_dark))
+
+dark_p = data.get("dark", {})
+light_p = data.get("light", dark_p)
+p = dark_p if is_dark else light_p
+
+bgBase    = p.get("bgBase", "#413D38")
+bgDark    = p.get("bgDark", "#34302c")
+bgHover   = p.get("bgHover", "#4f4a44")
+bgButton  = p.get("bgButton", "#413D38")
+accent    = p.get("accent", "#C5BAA8")
+ram       = p.get("hardwareRam", "#a39a8c")
+gpu       = p.get("hardwareGpu", "#797065")
+textMain  = p.get("textMain", "#dfdad2")
+textMuted = p.get("textMuted", "#9c9893")
+border    = p.get("border", "#dfdad2")
+error     = p.get("error", "#e06c75")
+
+kitty_opacity = "0.4"
+term_bg       = bgBase
+term_fg       = textMain
+term_muted    = textMuted
+term_accent   = accent
+term_ram      = ram
+term_gpu      = gpu
+on_accent     = bgDark
+tab_bar_bg    = bgDark
+shadow_hex    = accent.lstrip("#")
+
+if not is_dark:
+    on_accent = bgBase
+    if wall_is_dark:
+        kitty_opacity = "0.12"
+        term_bg       = bgBase
+        term_fg       = dark_p.get("textMain", textMain)
+        term_muted    = dark_p.get("textMuted", textMuted)
+        term_accent   = bgBase
+        term_ram      = bgButton
+        term_gpu      = dark_p.get("accent", accent)
+        on_accent     = textMain
+        tab_bar_bg    = dark_p.get("bgDark", bgDark)
+        shadow_hex    = bgBase.lstrip("#")
+
+opacity_line = f"background_opacity    {kitty_opacity}\n" if sync_glass else ""
+
+# 1. Update ~/.local/state/xeliushells/theme/kitty.conf ONLY if syncKitty is true
+if sync_kitty:
+    kitty_conf = f"""# Auto-generated by XeLiuShells (Do not edit manually)
+# Add to ~/.config/kitty/kitty.conf (below your own includes):
+#   include ~/.local/state/xeliushells/theme/kitty.conf
+{opacity_line}foreground            {term_fg}
+background            {term_bg}
+cursor                {term_accent}
+cursor_text_color     {on_accent}
+
+selection_foreground  {on_accent}
+selection_background  {term_accent}
+
+active_border_color   {term_accent}
+inactive_border_color {bgHover}
+
+active_tab_foreground   {on_accent}
+active_tab_background   {term_accent}
+inactive_tab_foreground {term_fg}
+inactive_tab_background {tab_bar_bg}
+tab_bar_background      {tab_bar_bg}
+tab_bar_margin_color    {tab_bar_bg}
+
+color0                {on_accent}
+color8                {term_muted}
+color1                {term_accent}
+color9                {term_gpu}
+color2                {term_fg}
+color10               {term_ram}
+color3                {term_gpu}
+color11               {term_gpu}
+color4                {term_accent}
+color12               {term_ram}
+color5                {term_ram}
+color13               {term_ram}
+color6                {term_accent}
+color14               {term_accent}
+color7                {term_fg}
+color15               {term_fg}
+"""
+    with open(os.path.join(state_dir, "kitty.conf"), "w", encoding="utf-8") as f:
+        f.write(kitty_conf)
+
+# 2. Update ~/.local/state/xeliushells/theme/hypr-colors.conf ONLY if syncHyprland is true
+def sh(c):
+    return c.lstrip("#")
+
+if sync_hypr:
+    blur_size = "6" if (not is_dark and wall_is_dark) else "2"
+    glass_block = ""
+    if sync_glass:
+        glass_block = f"""
+decoration {{
+    inactive_opacity = 0.4
+    blur {{
+        enabled = true
+        size = {blur_size}
+        passes = 5
+    }}
+}}
+"""
+    hypr_conf = f"""# Auto-generated by XeLiuShells (Do not edit manually)
+# Add to the bottom of ~/.config/hypr/hyprland.conf:
+#   source = ~/.local/state/xeliushells/theme/hypr-colors.conf
+
+$qs_active_border   = rgba({shadow_hex}ee)
+$qs_inactive_border = rgba({sh(bgDark)}ee)
+$qs_shadow_color    = rgba({shadow_hex}ee)
+
+general {{
+    col.active_border = $qs_active_border
+    col.inactive_border = $qs_inactive_border
+}}
+
+decoration {{
+    shadow {{
+        color = $qs_shadow_color
+    }}
+}}
+{glass_block}"""
+    with open(os.path.join(state_dir, "hypr-colors.conf"), "w", encoding="utf-8") as f:
+        f.write(hypr_conf)
+
+# 3. Update ~/.local/state/xeliushells/theme/nvim-palette.lua ONLY if syncNeovim is true
+use_dark_fg = is_dark or wall_is_dark
+fg_p = dark_p if use_dark_fg else light_p
+on_pill = bgDark if is_dark else bgBase
+
+if sync_nvim:
+    nvim_lua = f"""-- Auto-generated by XeLiuShells (Do not edit manually)
+local M = {{
+  enabled = true,
+  isDark = {str(is_dark).lower()},
+  wallIsDark = {str(wall_is_dark).lower()},
+  useDarkFg = {str(use_dark_fg).lower()},
+  palette = {{
+    bgBase = "{bgBase}",
+    bgDark = "{bgDark}",
+    bgHover = "{bgHover}",
+    bgButton = "{bgButton}",
+    onPill = "{on_pill}",
+    accent = "{fg_p.get('accent', accent)}",
+    textMain = "{fg_p.get('textMain', textMain)}",
+    textMuted = "{fg_p.get('textMuted', textMuted)}",
+    border = "{border}",
+    error = "{error}",
+    hardwareRam = "{fg_p.get('hardwareRam', ram)}",
+    hardwareGpu = "{fg_p.get('hardwareGpu', gpu)}",
+  }}
+}}
+
+function M.apply_highlights()
+  if not M.enabled then return end
+  local p = M.palette
+  local set_hl = vim.api.nvim_set_hl
+  set_hl(0, "Normal", {{ bg = "NONE" }})
+  set_hl(0, "NormalNC", {{ bg = "NONE" }})
+  set_hl(0, "NormalFloat", {{ bg = "NONE" }})
+  set_hl(0, "SignColumn", {{ bg = "NONE" }})
+  set_hl(0, "EndOfBuffer", {{ bg = "NONE" }})
+  set_hl(0, "FloatBorder", {{ fg = p.accent, bg = "NONE" }})
+  set_hl(0, "WinSeparator", {{ fg = p.bgHover, bg = "NONE" }})
+  set_hl(0, "VertSplit", {{ fg = p.bgHover, bg = "NONE" }})
+  set_hl(0, "CursorLineNr", {{ fg = p.accent, bold = true, bg = "NONE" }})
+  set_hl(0, "LineNr", {{ fg = p.textMuted, bg = "NONE" }})
+  set_hl(0, "Visual", {{ fg = p.bgDark, bg = p.accent }})
+  set_hl(0, "Search", {{ fg = p.bgDark, bg = p.hardwareRam, bold = true }})
+  set_hl(0, "IncSearch", {{ fg = p.bgDark, bg = p.accent, bold = true }})
+  set_hl(0, "Directory", {{ fg = p.accent, bold = true }})
+  set_hl(0, "Title", {{ fg = p.accent, bold = true }})
+  set_hl(0, "Special", {{ fg = p.hardwareRam }})
+  set_hl(0, "Identifier", {{ fg = p.textMain }})
+  set_hl(0, "Function", {{ fg = p.accent, bold = true }})
+  set_hl(0, "Statement", {{ fg = p.hardwareRam, bold = true }})
+  set_hl(0, "Type", {{ fg = p.hardwareGpu, bold = true }})
+  set_hl(0, "SnacksDashboardHeader", {{ fg = p.accent, bold = true }})
+  set_hl(0, "SnacksDashboardIcon", {{ fg = p.accent }})
+  set_hl(0, "SnacksDashboardDesc", {{ fg = p.textMain }})
+  set_hl(0, "SnacksDashboardKey", {{ fg = p.hardwareRam, bold = true }})
+  set_hl(0, "SnacksDashboardFooter", {{ fg = p.hardwareGpu, italic = true }})
+  set_hl(0, "SnacksDashboardSpecial", {{ fg = p.accent, bold = true }})
+end
+
+function M.lualine_theme()
+  local p = M.palette
+  return {{
+    normal = {{
+      a = {{ fg = p.onPill, bg = p.accent, gui = "bold" }},
+      b = {{ fg = p.onPill, bg = p.hardwareGpu }},
+      c = {{ fg = p.accent, bg = p.bgHover }},
+    }},
+    insert  = {{ a = {{ fg = p.onPill, bg = p.hardwareRam, gui = "bold" }} }},
+    visual  = {{ a = {{ fg = p.onPill, bg = p.hardwareGpu, gui = "bold" }} }},
+    replace = {{ a = {{ fg = p.onPill, bg = p.error, gui = "bold" }} }},
+    inactive = {{
+      a = {{ fg = p.accent, bg = p.bgDark }},
+      b = {{ fg = p.accent, bg = p.bgDark }},
+      c = {{ fg = p.accent, bg = p.bgDark }},
+    }},
+  }}
+end
+
+return M
+"""
+    with open(os.path.join(state_dir, "nvim-palette.lua"), "w", encoding="utf-8") as f:
+        f.write(nvim_lua)
+PYEOF
+
   local is_dark wall_is_dark
-  is_dark=$(jq -r '.isDark' "$CACHE_JSON" 2>/dev/null)
-  wall_is_dark=$(jq -r 'if .wallIsDark == null then .isDark else .wallIsDark end' "$CACHE_JSON" 2>/dev/null)
+  is_dark=$(jq -r '.isDark' "$target_json" 2>/dev/null)
+  wall_is_dark=$(jq -r 'if .wallIsDark == null then .isDark else .wallIsDark end' "$target_json" 2>/dev/null)
 
   local mode_key="dark"
   if [ "$is_dark" = "false" ]; then
     mode_key="light"
   fi
 
-  # Read per-app toggles (all default to true)
-  local sync_kitty sync_hypr sync_glass sync_gtk sync_nvim
-  sync_kitty=$(get_toggle "syncKitty" "true")
-  sync_hypr=$(get_toggle "syncHyprland" "true")
-  sync_glass=$(get_toggle "syncGlassEffects" "true")
-  sync_gtk=$(get_toggle "syncGtk" "true")
-  sync_nvim=$(get_toggle "syncNeovim" "true")
+  local bgBase bgDark accent
+  bgBase=$(jq -r ".${mode_key}.bgBase" "$target_json" 2>/dev/null)
+  bgDark=$(jq -r ".${mode_key}.bgDark" "$target_json" 2>/dev/null)
+  accent=$(jq -r ".${mode_key}.accent" "$target_json" 2>/dev/null)
 
-  # Pull active mode colors
-  local bgBase bgDark bgHover bgButton accent ram gpu textMain textMuted border error
-  bgBase=$(jq -r ".${mode_key}.bgBase" "$CACHE_JSON")
-  bgDark=$(jq -r ".${mode_key}.bgDark" "$CACHE_JSON")
-  bgHover=$(jq -r ".${mode_key}.bgHover" "$CACHE_JSON")
-  bgButton=$(jq -r ".${mode_key}.bgButton" "$CACHE_JSON")
-  accent=$(jq -r ".${mode_key}.accent" "$CACHE_JSON")
-  ram=$(jq -r ".${mode_key}.hardwareRam" "$CACHE_JSON")
-  gpu=$(jq -r ".${mode_key}.hardwareGpu" "$CACHE_JSON")
-  textMain=$(jq -r ".${mode_key}.textMain" "$CACHE_JSON")
-  textMuted=$(jq -r ".${mode_key}.textMuted" "$CACHE_JSON")
-  border=$(jq -r ".${mode_key}.border" "$CACHE_JSON")
-  error=$(jq -r ".${mode_key}.error" "$CACHE_JSON")
-
-  local kitty_opacity="0.4"
+  local bgDark_hex="${bgDark#\#}"
+  local shadow_hex="${accent#\#}"
   local blur_size="2"
   local blur_passes="5"
 
-  local term_bg="$bgBase"
-  local term_fg="$textMain"
-  local term_muted="$textMuted"
-  local term_accent="$accent"
-  local term_ram="$ram"
-  local term_gpu="$gpu"
-  local on_accent="$bgDark"
-  local tab_bar_bg="$bgDark"
-  local shadow_hex="${accent#\#}"
-
-  if [ "$is_dark" = "false" ]; then
-    on_accent="$bgBase"
-
-    if [ "$wall_is_dark" = "true" ]; then
-      kitty_opacity="0.12"
-      blur_size="6"
-      blur_passes="5"
-
-      term_bg="$bgBase"
-      term_fg=$(jq -r ".dark.textMain" "$CACHE_JSON")
-      term_muted=$(jq -r ".dark.textMuted" "$CACHE_JSON")
-      term_accent="$bgBase"
-      term_ram="$bgButton"
-      term_gpu=$(jq -r ".dark.accent" "$CACHE_JSON")
-      on_accent="$textMain"
-      tab_bar_bg=$(jq -r ".dark.bgDark" "$CACHE_JSON")
-      shadow_hex="${bgBase#\#}"
-    fi
+  if [ "$is_dark" = "false" ] && [ "$wall_is_dark" = "true" ]; then
+    shadow_hex="${bgBase#\#}"
+    blur_size="6"
+    blur_passes="5"
   fi
 
-  local bgBase_hex="${bgBase#\#}"
-  local bgDark_hex="${bgDark#\#}"
-  local accent_hex="${accent#\#}"
-  local ram_hex="${ram#\#}"
-  local gpu_hex="${gpu#\#}"
-  local textMain_hex="${textMain#\#}"
-  local textMuted_hex="${textMuted#\#}"
-
-  # 1. Generate Kitty & Ranger theme in ~/.cache/quickshell/theme/kitty.conf
-  local opacity_line=""
-  if [ "$sync_glass" = "true" ]; then
-    opacity_line="background_opacity    $kitty_opacity"
-  fi
-
-  cat <<EOF >"$THEME_OUT_DIR/kitty.conf"
-$opacity_line
-foreground            $term_fg
-background            $term_bg
-cursor                $term_accent
-cursor_text_color     $on_accent
-
-selection_foreground  $on_accent
-selection_background  $term_accent
-
-active_border_color   $term_accent
-inactive_border_color $bgHover
-
-active_tab_foreground   $on_accent
-active_tab_background   $term_accent
-inactive_tab_foreground $term_fg
-inactive_tab_background $tab_bar_bg
-tab_bar_background      $tab_bar_bg
-tab_bar_margin_color    $tab_bar_bg
-
-color0                $on_accent
-color8                $term_muted
-color1                $term_accent
-color9                $term_gpu
-color2                $term_fg
-color10               $term_ram
-color3                $term_gpu
-color11               $term_gpu
-color4                $term_accent
-color12               $term_ram
-color5                $term_ram
-color13               $term_ram
-color6                $term_accent
-color14               $term_accent
-color7                $term_fg
-color15               $term_fg
-EOF
-
+  # 1. Reload Kitty ONLY if syncKitty is enabled
   if [ "$sync_kitty" = "true" ]; then
-    if [ -d "$(dirname "$KITTY_COLORS")" ]; then
-      cp "$THEME_OUT_DIR/kitty.conf" "$KITTY_COLORS"
-    fi
     killall -USR1 kitty >/dev/null 2>&1 &
   fi
 
-  # 2. Generate Hyprland colors in ~/.cache/quickshell/theme/hypr-colors.conf
-  cat <<EOF >"$THEME_OUT_DIR/hypr-colors.conf"
-# DYNAMICALLY GENERATED BY QUICKSHELL (set_theme.sh)
-
-\$foreground = rgb($textMain_hex)
-\$background = rgb($bgBase_hex)
-\$cursor     = rgb($gpu_hex)
-
-\$color0  = rgb($bgDark_hex)
-\$color1  = rgb($textMain_hex)
-\$color2  = rgb($textMain_hex)
-\$color3  = rgb($gpu_hex)
-\$color4  = rgb($textMain_hex)
-\$color5  = rgb($ram_hex)
-\$color6  = rgb($accent_hex)
-\$color7  = rgb($textMain_hex)
-\$color8  = rgb($textMuted_hex)
-\$color9  = rgb($gpu_hex)
-\$color10 = rgb($ram_hex)
-\$color11 = rgb($gpu_hex)
-\$color12 = rgb($ram_hex)
-\$color13 = rgb($ram_hex)
-\$color14 = rgb($accent_hex)
-\$color15 = rgb($textMain_hex)
-
-\$active_border   = rgba(${shadow_hex}ee)
-\$inactive_border = rgba(${bgDark_hex}ee)
-\$shadow_color    = rgba(${shadow_hex}ee)
-EOF
-
+  # 2. Apply Hyprland colors/glass ONLY if syncHyprland is enabled
   if [ "$sync_hypr" = "true" ] && [ -n "$shadow_hex" ] && [ "$shadow_hex" != "null" ]; then
-    if [ -d "$(dirname "$HYPR_COLORS")" ]; then
-      cp "$THEME_OUT_DIR/hypr-colors.conf" "$HYPR_COLORS"
-    fi
     if [ "$sync_glass" = "true" ]; then
       hyprctl --batch "keyword general:col.active_border rgba(${shadow_hex}ee); keyword general:col.inactive_border rgba(${bgDark_hex}ee); keyword decoration:shadow:color rgba(${shadow_hex}ee); keyword decoration:inactive_opacity 0.4; keyword decoration:blur:size $blur_size; keyword decoration:blur:passes $blur_passes" >/dev/null 2>&1 &
     else
@@ -196,7 +372,7 @@ EOF
     fi
   fi
 
-  # 3. Sync GTK Dark/Light preference
+  # 3. Sync GTK Dark/Light preference ONLY if syncGtk is enabled
   if [ "$sync_gtk" = "true" ]; then
     if [ "$is_dark" = "false" ]; then
       gsettings set org.gnome.desktop.interface color-scheme 'default' >/dev/null 2>&1 &
@@ -205,16 +381,24 @@ EOF
     fi
   fi
 
-  # 4. Safe Neovim live reload: Only send SIGUSR1 if the user's Neovim config handles SIGUSR1!
-  if [ "$sync_nvim" = "true" ] && grep -rq "SIGUSR1" "$HOME/.config/nvim" 2>/dev/null; then
-    pkill -USR1 -x nvim >/dev/null 2>&1 &
-  fi
-
-  # 5. Optional user post-theme hook script
-  if [ -x "$HOME/.config/quickshell/scripts/post_theme_hook.sh" ]; then
-    "$HOME/.config/quickshell/scripts/post_theme_hook.sh" "$CACHE_JSON" >/dev/null 2>&1 &
+  # 4. Optional user post-theme hook script
+  if [ -x "$XDG_CONFIG/xeliushells/post_theme_hook.sh" ]; then
+    "$XDG_CONFIG/xeliushells/post_theme_hook.sh" "$target_json" >/dev/null 2>&1 &
   fi
 }
+
+# --- MODE 0: Explicit Reset of External State Files (--reset-sync) ---
+if [ "$MODE_ARG" = "--reset-sync" ]; then
+  echo "# XeLiuShells: Reset to clean stub" >"$THEME_STATE_DIR/kitty.conf"
+  echo "# XeLiuShells: Reset to clean stub" >"$THEME_STATE_DIR/hypr-colors.conf"
+  cat <<'EOF' >"$THEME_STATE_DIR/nvim-palette.lua"
+-- XeLiuShells: Reset to clean stub
+return { enabled = false, apply_highlights = function() end }
+EOF
+  killall -USR1 kitty >/dev/null 2>&1 &
+  hyprctl reload >/dev/null 2>&1 &
+  exit 0
+fi
 
 # --- MODE A: Polarity Toggle Only (--sync-only <true|false>) ---
 if [ "$MODE_ARG" = "--sync-only" ]; then
@@ -222,7 +406,7 @@ if [ "$MODE_ARG" = "--sync-only" ]; then
   if [ -f "$CACHE_JSON" ]; then
     TMP_JSON=$(mktemp)
     jq --argjson d "$NEW_DARK" '.isDark = $d' "$CACHE_JSON" >"$TMP_JSON" && mv "$TMP_JSON" "$CACHE_JSON"
-    sync_external_themes
+    sync_external_themes "$CACHE_JSON"
     cat "$CACHE_JSON"
   fi
   exit 0
@@ -230,7 +414,10 @@ fi
 
 # --- MODE B: Full Wallpaper & Palette Generation ---
 WALL="$MODE_ARG"
-if [ -z "$WALL" ] || [ ! -f "$WALL" ]; then
+if [ -z "$WALL" ]; then
+  exit 1
+fi
+if [ ! -f "$WALL" ]; then
   exit 1
 fi
 
@@ -278,13 +465,16 @@ if [ "$FILENAME" = "1.png" ]; then
   }
 }
 EOF
-  sync_external_themes
+  sync_external_themes "$CACHE_JSON"
   cat "$CACHE_JSON"
   exit 0
 fi
 
-# 3. Analyze the wallpaper pixels and build HSL-calibrated Dark & Light palettes directly in awk
-magick "$WALL" -resize 64x64\! -depth 8 txt:- 2>/dev/null | awk -v wall="$WALL" '
+# 3. Analyze the wallpaper pixels and build HSL-calibrated Dark & Light palettes
+TMP_TXT=$(mktemp)
+magick "$WALL" -resize 64x64\! -depth 8 "txt:$TMP_TXT" 2>/dev/null
+
+awk -v wall="$WALL" '
 function hex2dec(h,    i, c, val, pos) {
     val = 0
     h = tolower(h)
@@ -416,10 +606,11 @@ END {
     printf "\"dark\":{\"bgBase\":\"%s\",\"bgDark\":\"%s\",\"bgHover\":\"%s\",\"bgButton\":\"%s\",\"accent\":\"%s\",\"hardwareRam\":\"%s\",\"hardwareGpu\":\"%s\",\"textMain\":\"%s\",\"textMuted\":\"%s\",\"border\":\"%s\",\"error\":\"#e06c75\"},", d_bgBase, d_bgDark, d_bgHover, d_bgButton, d_accent, d_ram, d_gpu, d_textMain, d_textMute, d_border
     printf "\"light\":{\"bgBase\":\"%s\",\"bgDark\":\"%s\",\"bgHover\":\"%s\",\"bgButton\":\"%s\",\"accent\":\"%s\",\"hardwareRam\":\"%s\",\"hardwareGpu\":\"%s\",\"textMain\":\"%s\",\"textMuted\":\"%s\",\"border\":\"%s\",\"error\":\"#c94f58\"}}\n", l_bgBase, l_bgDark, l_bgHover, l_bgButton, l_accent, l_ram, l_gpu, l_textMain, l_textMute, l_border
 }
-' >"$CACHE_JSON"
+' "$TMP_TXT" >"$CACHE_JSON"
+rm -f "$TMP_TXT"
 
-# 4. Sync Kitty, Ranger, Hyprland, GTK, and Neovim
-sync_external_themes
+# 4. Sync external state files (only updating apps whose sync toggle is true)
+sync_external_themes "$CACHE_JSON"
 
 # 5. Output JSON to stdout so Quickshell updates immediately
 cat "$CACHE_JSON"

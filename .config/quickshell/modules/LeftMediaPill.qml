@@ -13,6 +13,8 @@ Scope {
     IpcHandler {
         target: "media"
         function toggle(): void {
+            if (GlobalState.isRecordingKeybind)
+                return;
             GlobalState.mediaExpanded = !GlobalState.mediaExpanded;
         }
     }

@@ -13,6 +13,8 @@ Scope {
     IpcHandler {
         target: "clock"
         function toggle(): void {
+            if (GlobalState.isRecordingKeybind)
+                return;
             GlobalState.clockExpanded = !GlobalState.clockExpanded;
         }
     }

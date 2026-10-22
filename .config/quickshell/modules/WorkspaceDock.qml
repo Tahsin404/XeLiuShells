@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Io
+import "../core"
 import "../components" as Components
 
 Scope {
@@ -16,6 +17,8 @@ Scope {
     IpcHandler {
         target: "dock"
         function toggleMenu(): void {
+            if (GlobalState.isRecordingKeybind)
+                return;
             if (dockScope.activeMenuId !== -1) {
                 dockScope.activeMenuId = -1;
             } else {

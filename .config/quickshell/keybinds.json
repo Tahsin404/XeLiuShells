@@ -1,6 +1,0 @@
-{
-  "launcher": { "mods": "SUPER", "key": "SUPER_L", "display": "WIN" },
-  "media":    { "mods": "",      "key": "F6",      "display": "F6"  },
-  "clock":    { "mods": "",      "key": "F7",      "display": "F7"  },
-  "utility":  { "mods": "",      "key": "F8",      "display": "F8"  }
-}

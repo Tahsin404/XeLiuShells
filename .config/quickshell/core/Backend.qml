@@ -47,26 +47,94 @@ Item {
     }
 
     function fetchEvents(year) {
+        let cc = (Config.localization.countryCode || "AUTO").trim().toUpperCase();
+        if (cc === "OFF" || cc === "NONE" || cc === "FALSE") {
+            GlobalState.eventDates = [];
+            GlobalState.eventNames = ({});
+            GlobalState.apiStatus = "Holidays: Off";
+            return;
+        }
+
         GlobalState.apiStatus = "Holidays: Loading...";
-        fetchHolidaysProcess.command = ["bash", "-c", "$HOME/.config/quickshell/scripts/get_holidays.sh " + year];
+        let allowIp = Config.localization.allowIpLookup ? "true" : "false";
+        fetchHolidaysProcess.command = ["bash", "-c", "$HOME/.config/quickshell/scripts/get_holidays.sh \"$1\" \"$2\" \"$3\"", "--", String(year), cc, allowIp];
         fetchHolidaysProcess.running = true;
     }
 
+    function updateClockStrings() {
+        var d = new Date();
+        var timeFmt = (Config.ui.clockFormat && Config.ui.clockFormat.trim() !== "") ? Config.ui.clockFormat : "h:mm AP";
+        var dateFmt = (Config.ui.dateFormat && Config.ui.dateFormat.trim() !== "") ? Config.ui.dateFormat : "dddd";
+
+        GlobalState.timeString = Qt.formatTime(d, timeFmt);
+        GlobalState.dayString = Qt.formatDate(d, dateFmt);
+        GlobalState.upperDayString = GlobalState.dayString.toUpperCase();
+
+        var m = d.getMonth();
+        var y = d.getFullYear();
+        if (m !== GlobalState.currentMonth || y !== GlobalState.currentYear) {
+            GlobalState.currentMonth = m;
+            GlobalState.currentYear = y;
+            backendEngine.fetchEvents(y);
+        }
+    }
+
+    // Instantly refresh clock or holidays when config.json is edited on disk
+    Connections {
+        target: Config.ui
+        function onClockFormatChanged() {
+            backendEngine.updateClockStrings();
+        }
+        function onDateFormatChanged() {
+            backendEngine.updateClockStrings();
+        }
+    }
+
+    Connections {
+        target: Config.localization
+        function onCountryCodeChanged() {
+            if (GlobalState.currentYear > 0)
+                backendEngine.fetchEvents(GlobalState.currentYear);
+        }
+        function onAllowIpLookupChanged() {
+            if (GlobalState.currentYear > 0)
+                backendEngine.fetchEvents(GlobalState.currentYear);
+        }
+    }
+    Timer {
+        id: syncThemeTogglesTimer
+        interval: 150
+        repeat: false
+        onTriggered: {
+            let polarityStr = GlobalState.darkTheme ? "true" : "false";
+            backendEngine.run("$HOME/.config/quickshell/scripts/set_theme.sh --sync-only " + polarityStr);
+        }
+    }
+
+    Connections {
+        target: Config.sync
+        function onSyncKittyChanged() {
+            syncThemeTogglesTimer.restart();
+        }
+        function onSyncHyprlandChanged() {
+            syncThemeTogglesTimer.restart();
+        }
+        function onSyncGlassEffectsChanged() {
+            syncThemeTogglesTimer.restart();
+        }
+        function onSyncNeovimChanged() {
+            syncThemeTogglesTimer.restart();
+        }
+        function onSyncGtkChanged() {
+            syncThemeTogglesTimer.restart();
+        }
+    }
     Timer {
         interval: 1000
         running: true
         repeat: true
         triggeredOnStart: true
-        onTriggered: {
-            var d = new Date();
-            GlobalState.timeString = Qt.formatTime(d, "h:mm AP");
-            GlobalState.dayString = Qt.formatDate(d, "dddd");
-            GlobalState.upperDayString = GlobalState.dayString.toUpperCase();
-
-            if (GlobalState.apiStatus === "API: Waiting...") {
-                fetchEvents(d.getFullYear());
-            }
-        }
+        onTriggered: backendEngine.updateClockStrings()
     }
 
     function init() {
@@ -128,15 +196,18 @@ Item {
     // Reads your click history to dynamically sort recommended apps
     Process {
         id: historyReader
-        command: ["bash", "-c", "cat $HOME/.cache/quickshell_history.log 2>/dev/null || true"]
-        stdout: SplitParser {
-            onRead: data => {
-                let app = data.trim();
-                if (app !== "") {
-                    let temp = GlobalState.historyCounts;
-                    temp[app] = (temp[app] || 0) + 1;
-                    GlobalState.historyCounts = temp;
+        command: ["bash", "-c", "mkdir -p \"$HOME/.local/state/xeliushells\"; " + "if [ ! -f \"$HOME/.local/state/xeliushells/app_history.log\" ] && [ -f \"$HOME/.cache/quickshell_history.log\" ]; then " + "  mv \"$HOME/.cache/quickshell_history.log\" \"$HOME/.local/state/xeliushells/app_history.log\"; " + "fi; " + "if [ -f \"$HOME/.local/state/xeliushells/app_history.log\" ]; then " + "  sort \"$HOME/.local/state/xeliushells/app_history.log\" | uniq -c; " + "fi"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                let counts = {};
+                let lines = text.trim().split("\n");
+                for (let i = 0; i < lines.length; i++) {
+                    let match = lines[i].trim().match(/^(\d+)\s+(.+)$/);
+                    if (match) {
+                        counts[match[2]] = parseInt(match[1]);
+                    }
                 }
+                GlobalState.historyCounts = counts;
             }
         }
     }
@@ -164,7 +235,7 @@ Item {
     // Scans wallpapers, caches 640x400 thumbnails, and only updates the model if files changed
     Process {
         id: fetchWallpapersProcess
-        command: ["bash", "-c", "WALL_DIR=\"$HOME/.config/quickshell/assets/wallpapers\"; " + "THUMB_DIR=\"$HOME/.cache/quickshell_thumbs\"; " + "mkdir -p \"$WALL_DIR\" \"$THUMB_DIR\"; " + "find \"$WALL_DIR\" -maxdepth 1 -type f \\( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.webp' \\) | sort -V | while IFS= read -r img; do " + "  fname=$(basename \"$img\"); " + "  thumb=\"$THUMB_DIR/${fname}.jpg\"; " + "  if [ ! -f \"$thumb\" ] || [ \"$img\" -nt \"$thumb\" ]; then " + "    magick \"$img\" -thumbnail 640x400^ -gravity center -extent 640x400 -quality 90 \"$thumb\" 2>/dev/null || cp \"$img\" \"$thumb\"; " + "  fi; " + "  printf '%s\\t%s\\n' \"$img\" \"$thumb\"; " + "done"]
+        command: ["bash", "-c", "WALL_DIR=\"$1\"; " + "WALL_DIR=\"${WALL_DIR/#~/$HOME}\"; " + "if [ ! -d \"$WALL_DIR\" ]; then WALL_DIR=\"$HOME/.config/quickshell/assets/wallpapers\"; fi; " + "THUMB_DIR=\"$HOME/.cache/xeliushells/thumbs\"; " + "mkdir -p \"$WALL_DIR\" \"$THUMB_DIR\"; " + "find -L \"$WALL_DIR\" -maxdepth 1 -type f \\( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.webp' \\) 2>/dev/null | sort -V | while IFS= read -r img; do " + "  fname=$(basename \"$img\"); " + "  thumb=\"$THUMB_DIR/${fname}.jpg\"; " + "  if [ ! -f \"$thumb\" ] || [ \"$img\" -nt \"$thumb\" ]; then " + "    magick \"$img\" -thumbnail 640x400^ -gravity center -extent 640x400 -quality 90 \"$thumb\" 2>/dev/null || cp \"$img\" \"$thumb\"; " + "  fi; " + "  printf '%s\\t%s\\n' \"$img\" \"$thumb\"; " + "done", "--", (Config.paths && Config.paths.wallpaperDir) ? Config.paths.wallpaperDir : "~/.config/quickshell/assets/wallpapers"]
         stdout: StdioCollector {
             onStreamFinished: {
                 if (!GlobalState.wallpapersModel)
@@ -190,7 +261,6 @@ Item {
                     });
                 }
 
-                // Compare against existing model so we NEVER clear/reload unchanged cards!
                 let isSame = (GlobalState.wallpapersModel.count === newItems.length);
                 if (isSame) {
                     for (let i = 0; i < newItems.length; i++) {
@@ -261,7 +331,7 @@ Item {
 
     Process {
         id: loadSavedThemeProcess
-        command: ["bash", "-c", "cat $HOME/.cache/quickshell_theme.json 2>/dev/null || true"]
+        command: ["bash", "-c", "if [ -f \"$1\" ]; then cat \"$1\"; elif [ -f \"$HOME/.cache/quickshell_theme.json\" ]; then cat \"$HOME/.cache/quickshell_theme.json\"; fi", "--", Config.themeStateDir + "/theme.json"]
         stdout: StdioCollector {
             onStreamFinished: {
                 let out = text.trim();
@@ -343,7 +413,9 @@ Item {
         if (cleaned === "")
             return;
 
-        installWallpaperProcess.command = ["bash", "-c", "SRC=\"$1\"; " + "SRC=\"${SRC/#\\~/$HOME}\"; " + "WALL_DIR=\"$HOME/.config/quickshell/assets/wallpapers\"; " + "THUMB_DIR=\"$HOME/.cache/quickshell_thumbs\"; " + "mkdir -p \"$WALL_DIR\" \"$THUMB_DIR\"; " + "if [ -f \"$SRC\" ]; then " + "  fname=$(basename \"$SRC\"); " + "  dest=\"$WALL_DIR/$fname\"; " + "  cp -f \"$SRC\" \"$dest\" && " + "  thumb=\"$THUMB_DIR/${fname}.jpg\"; " + "  (magick \"$dest\" -thumbnail 640x400^ -gravity center -extent 640x400 -quality 90 \"$thumb\" 2>/dev/null || cp \"$dest\" \"$thumb\") && " + "  (command -v notify-send >/dev/null 2>&1 && notify-send 'Quickshell' \"Installed wallpaper: $fname\" || true); " + "  echo 'INSTALLED_OK'; " + "else " + "  (command -v notify-send >/dev/null 2>&1 && notify-send -u critical 'Quickshell' \"File not found: $SRC\" || true); " + "  echo 'ERR_NOT_FOUND'; " + "fi", "--", cleaned];
+        let wallDir = (Config.paths && Config.paths.wallpaperDir) ? Config.paths.wallpaperDir : "~/.config/quickshell/assets/wallpapers";
+
+        installWallpaperProcess.command = ["bash", "-c", "SRC=\"$1\"; " + "WALL_DIR=\"$2\"; " + "SRC=\"${SRC/#~/$HOME}\"; " + "WALL_DIR=\"${WALL_DIR/#~/$HOME}\"; " + "THUMB_DIR=\"$HOME/.cache/xeliushells/thumbs\"; " + "mkdir -p \"$WALL_DIR\" \"$THUMB_DIR\"; " + "if [ -f \"$SRC\" ]; then " + "  fname=$(basename \"$SRC\"); " + "  dest=\"$WALL_DIR/$fname\"; " + "  cp -f \"$SRC\" \"$dest\" && " + "  thumb=\"$THUMB_DIR/${fname}.jpg\"; " + "  (magick \"$dest\" -thumbnail 640x400^ -gravity center -extent 640x400 -quality 90 \"$thumb\" 2>/dev/null || cp \"$dest\" \"$thumb\") && " + "  (command -v notify-send >/dev/null 2>&1 && notify-send 'XeLiuShells' \"Installed wallpaper: $fname\" || true); " + "  echo 'INSTALLED_OK'; " + "else " + "  (command -v notify-send >/dev/null 2>&1 && notify-send -u critical 'XeLiuShells' \"File not found: $SRC\" || true); " + "  echo 'ERR_NOT_FOUND'; " + "fi", "--", cleaned, wallDir];
         installWallpaperProcess.running = true;
     }
 
@@ -364,8 +436,70 @@ Item {
         backendEngine.run("$HOME/.config/quickshell/scripts/set_theme.sh --sync-only " + polarityStr);
     }
 
+    function resetSyncedThemes() {
+        Config.sync.syncKitty = false;
+        Config.sync.syncHyprland = false;
+        Config.sync.syncGlassEffects = false;
+        Config.sync.syncNeovim = false;
+        Config.sync.syncGtk = false;
+        Config.save();
+        backendEngine.run("$HOME/.config/quickshell/scripts/set_theme.sh --reset-sync");
+        backendEngine.run("command -v notify-send >/dev/null 2>&1 && notify-send 'XeLiuShells' 'All external theme syncs disabled and reset to clean stubs.'");
+    }
+
+    function openConfigInEditor() {
+        let term = (Config.paths && Config.paths.terminalEmulator) ? Config.paths.terminalEmulator : "kitty";
+        let cfgPath = Config.configFilePath;
+        backendEngine.run(term + " -e bash -c '${EDITOR:-nvim} \"" + cfgPath + "\"'");
+    }
+
+    function setUiFont(fontFamily) {
+        let target = fontFamily.trim();
+        if (target === "")
+            return;
+        let families = Qt.fontFamilies();
+        let matched = "";
+        for (let i = 0; i < families.length; i++) {
+            if (families[i].toLowerCase() === target.toLowerCase()) {
+                matched = families[i];
+                break;
+            }
+        }
+        if (matched === "") {
+            backendEngine.run("command -v notify-send >/dev/null 2>&1 && notify-send -u critical 'XeLiuShells Font' 'Font not installed: " + target + "'");
+            return;
+        }
+        Config.ui.uiFont = matched;
+        Config.save();
+        backendEngine.run("command -v notify-send >/dev/null 2>&1 && notify-send 'XeLiuShells Font' 'UI font set to: " + matched + "'");
+    }
+
+    function setIconFont(fontFamily) {
+        let target = fontFamily.trim();
+        if (target === "")
+            return;
+        let families = Qt.fontFamilies();
+        let matched = "";
+        for (let i = 0; i < families.length; i++) {
+            if (families[i].toLowerCase() === target.toLowerCase()) {
+                matched = families[i];
+                break;
+            }
+        }
+        if (matched === "") {
+            backendEngine.run("command -v notify-send >/dev/null 2>&1 && notify-send -u critical 'XeLiuShells Icon Font' 'Font not installed: " + target + "'");
+            return;
+        }
+        if (!matched.toLowerCase().includes("nerd") && !matched.toLowerCase().includes("symbols")) {
+            backendEngine.run("command -v notify-send >/dev/null 2>&1 && notify-send -u critical 'XeLiuShells Icon Font' 'Warning: " + matched + " does not appear to be a Nerd Font!'");
+        }
+        Config.ui.iconFont = matched;
+        Config.save();
+        backendEngine.run("command -v notify-send >/dev/null 2>&1 && notify-send 'XeLiuShells Icon Font' 'Icon font set to: " + matched + "'");
+    }
+
     function smartLaunch(appName, execCmd) {
-        backendEngine.run("echo '" + appName + "' >> ~/.cache/quickshell_history.log");
+        backendEngine.run("mkdir -p ~/.local/state/xeliushells && echo '" + appName + "' >> ~/.local/state/xeliushells/app_history.log");
         let temp = GlobalState.historyCounts;
         temp[appName] = (temp[appName] || 0) + 1;
         GlobalState.historyCounts = temp;
@@ -427,10 +561,12 @@ Item {
 
     // Initialize media & theme states on startup
     Component.onCompleted: {
+        void (Config.ready);
         batSync.running = true;
         fetchVolumeProcess.running = true;
         fetchBrightnessProcess.running = true;
         loadSavedThemeProcess.running = true;
+        loadKeybinds();
     }
 
     // Abstracted setter functions for the UI Sliders to call
@@ -446,7 +582,7 @@ Item {
     function syncVolume() {
         fetchVolumeProcess.running = true;
     }
-    // --- KEYBINDS ENGINE ---
+    // --- KEYBINDS ENGINE (Driven by Config.keybinds) ---
     Process {
         id: keybindsProc
         stdout: StdioCollector {
@@ -454,28 +590,81 @@ Item {
                 let raw = text.trim();
                 if (raw.length > 0) {
                     try {
-                        GlobalState.keybindsMap = JSON.parse(raw);
+                        let status = JSON.parse(raw);
+                        GlobalState.keybindsSourceConfigured = (status.sourceConfigured !== false);
+                        GlobalState.keybindConflicts = status.conflicts || [];
                     } catch (e) {
-                        console.log("Keybinds JSON parse error:", e);
+                        console.warn("Keybinds status JSON parse error:", e);
                     }
                 }
             }
         }
     }
 
-    function loadKeybinds() {
-        keybindsProc.command = ["bash", "-c", "$HOME/.config/quickshell/scripts/manage_keybinds.sh --get"];
+    // Keeps GlobalState.isRecordingKeybind true for 250ms after key release
+    // so delayed 'qs ipc call' processes spawned by bindn/bindr are ignored.
+    Timer {
+        id: recordingCooldownTimer
+        interval: 250
+        repeat: false
+        onTriggered: GlobalState.isRecordingKeybind = false
+    }
+
+    function setKeybindRecording(active) {
+        if (active) {
+            recordingCooldownTimer.stop();
+            GlobalState.isRecordingKeybind = true;
+        } else {
+            recordingCooldownTimer.restart();
+        }
+    }
+
+    function syncKeybindsToHyprland() {
+        keybindsProc.command = ["bash", "-c", "$HOME/.config/quickshell/scripts/manage_keybinds.sh --apply"];
         keybindsProc.running = true;
+    }
+
+    function loadKeybinds() {
+        keybindsProc.command = ["bash", "-c", "$HOME/.config/quickshell/scripts/manage_keybinds.sh --check"];
+        keybindsProc.running = true;
+    }
+
+    Timer {
+        id: applyKeybindsTimer
+        interval: 220
+        repeat: false
+        onTriggered: backendEngine.syncKeybindsToHyprland()
     }
 
     function setKeybind(target, mods, key, displayStr) {
-        let safeCmd = "$HOME/.config/quickshell/scripts/manage_keybinds.sh --set " + "'" + target + "' " + "'" + mods + "' " + "'" + key + "' " + "'" + displayStr + "'";
-        keybindsProc.command = ["bash", "-c", safeCmd];
-        keybindsProc.running = true;
+        let entry = Config.keybinds[target];
+        if (entry) {
+            entry.mods = mods;
+            entry.key = key;
+            entry.display = displayStr;
+            Config.save();
+            applyKeybindsTimer.restart();
+        }
     }
 
     function resetKeybinds() {
-        keybindsProc.command = ["bash", "-c", "$HOME/.config/quickshell/scripts/manage_keybinds.sh --reset"];
-        keybindsProc.running = true;
+        Config.keybinds.launcher.mods = "SUPER";
+        Config.keybinds.launcher.key = "SUPER_L";
+        Config.keybinds.launcher.display = "WIN";
+
+        Config.keybinds.media.mods = "";
+        Config.keybinds.media.key = "F6";
+        Config.keybinds.media.display = "F6";
+
+        Config.keybinds.clock.mods = "";
+        Config.keybinds.clock.key = "F7";
+        Config.keybinds.clock.display = "F7";
+
+        Config.keybinds.utility.mods = "";
+        Config.keybinds.utility.key = "F8";
+        Config.keybinds.utility.display = "F8";
+
+        Config.save();
+        applyKeybindsTimer.restart();
     }
 }

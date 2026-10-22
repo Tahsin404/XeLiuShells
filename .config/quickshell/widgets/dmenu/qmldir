@@ -2,3 +2,4 @@
 DmenuLayout DmenuLayout.qml
 WallpaperCarousel WallpaperCarousel.qml
 KeybindsConfigurator KeybindsConfigurator.qml
+ThemeSyncConfigurator ThemeSyncConfigurator.qml
